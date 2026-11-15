@@ -192,7 +192,7 @@ export function AppLayout() {
             <search className="hidden w-full max-w-131.75 md:block">
               <label
                 htmlFor={searchId}
-                className="flex h-10.5 cursor-not-allowed items-center gap-3 rounded-control border border-line-strong bg-canvas pr-3 pl-3.5 text-fg-muted"
+                className="flex h-10.5 cursor-not-allowed items-center gap-3 rounded-control border border-field-border bg-canvas pr-3 pl-3.5 text-fg-muted"
               >
                 <span className="sr-only">Search</span>
                 <SearchIcon className="size-5.5 shrink-0" />

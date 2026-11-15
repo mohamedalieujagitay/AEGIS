@@ -39,9 +39,9 @@ export function Select({
         <select
           id={id}
           className={cx(
-            'h-10.5 w-full cursor-pointer appearance-none rounded-control border border-line-strong bg-canvas pr-10 text-body text-fg',
+            'h-10.5 w-full cursor-pointer appearance-none rounded-control border border-field-border bg-canvas pr-10 text-body text-fg',
             'hover:border-chart-blue focus:border-chart-blue focus:ring-3 focus:ring-chart-blue/18 focus:outline-none',
-            'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-line-strong',
+            'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-field-border',
             LeadingIcon ? 'pl-9.5' : 'pl-4',
           )}
           {...props}

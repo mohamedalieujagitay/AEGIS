@@ -12,7 +12,7 @@ export function SearchField({ label, className, ...props }: SearchFieldProps) {
   return (
     <label
       className={cx(
-        'flex h-10.5 items-center gap-3 rounded-control border border-line-strong bg-canvas px-3.5 text-fg-muted',
+        'flex h-10.5 items-center gap-3 rounded-control border border-field-border bg-canvas px-3.5 text-fg-muted',
         'focus-within:border-chart-blue focus-within:ring-3 focus-within:ring-chart-blue/18',
         'has-disabled:cursor-not-allowed has-disabled:opacity-60',
         className,

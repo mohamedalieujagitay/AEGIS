@@ -3,7 +3,7 @@
 
 **Project:** AEGIS  
 **Document:** Product Requirements Specification  
-**Version:** 1.1  
+**Version:** 1.2  
 **Status:** Approved  
 **Last Updated:** 2026-11-15  
 **Related:** [PROJECT_VISION.md](PROJECT_VISION.md) · [SYSTEM_ARCHITECTURE.md](architecture/SYSTEM_ARCHITECTURE.md) · [DEVELOPMENT_ROADMAP.md](development/DEVELOPMENT_ROADMAP.md) · [DECISIONS.md](architecture/DECISIONS.md)  
@@ -825,35 +825,54 @@ Primary accent color: Blue.
 
 ## 5.2 Main Navigation
 
-The application should provide:
+Navigation is organised around the user's workflow (register assets, run assessments, triage findings, report) rather than around individual security modules.
+
+The application must provide:
 
 - Overview.
 - Assets.
-- Reconnaissance.
-- Network Security.
-- Web & API Security.
-- System Security.
-- Threat Intelligence.
-- Vulnerabilities.
-- Monitoring.
+- Assessments.
+- Findings.
 - Reports.
+- Activity.
 - Settings.
 
-Modules scheduled for later releases may initially appear only when implemented.
+Security modules do not have their own navigation items while they are part of this workflow. Each module's requirements remain in force and are presented as follows:
+
+| Module or requirement | Where it appears | First available |
+|---|---|---|
+| Reconnaissance (FR-RECON-001 to 004) | Assessments: DNS analysis and subdomain discovery are assessment types. Assets: discovered subdomains, DNS records, certificates and asset relationships | v0.1.0 |
+| Network Security (FR-NET-001 to 005) | Assessments: TCP port assessment and TLS assessment are assessment types. Assets: network inventory (services by host) | v0.1.0 |
+| Assessment scope and authorization (FR-ASSET-003, FR-ASSET-004) | Assets | v0.1.0 |
+| Assessment jobs and history (FR-JOB-003, FR-HIST-001 to 003) | Assessments | v0.1.0 |
+| Vulnerability Management (FR-VULN-001 to 005) | Findings | v0.1.0 |
+| Reporting (FR-REPORT-001 to 003) | Reports | v0.1.0 |
+| Workspace audit log (§4.1, FR-WS-003) | Activity | v0.1.0 |
+| Web & API Security | Assessments: new assessment types | Phase 06 |
+| Threat Intelligence | Its own navigation item, plus enrichment of Findings | Phase 07 |
+| System Security (Linux auditing) | Assessments: new assessment type. Assets: host details | Phase 08 |
+| Monitoring | Its own navigation item | Phase 09 |
+
+Modules scheduled for later releases appear only when implemented.
+
+Navigation items follow the permission matrix (FR-WS-003). In particular, Activity shows the workspace audit log, which only Owners and Admins may view: it must be hidden from, and refused to, Analysts and Viewers. This is enforced by the backend and implemented with workspace roles in Phase 02.
 
 ## 5.3 Dashboard
 
-The dashboard should display:
+The dashboard (Overview) must display:
 
 - Total assets.
-- Active services.
-- Total findings.
-- Critical findings.
+- Assessments.
+- Open findings.
+- Critical risks (open findings with critical severity).
+- Risk distribution: total findings by severity.
+- Findings trend over a selectable period.
 - Recent assessments.
 - Recent activity.
-- Vulnerability severity distribution.
 
-All displayed statistics must originate from actual application data.
+Active services are shown in the network inventory on the Assets page (FR-NET-004) rather than as a dashboard metric.
+
+All displayed statistics must originate from actual application data. Until data exists, each metric shows an empty state, never sample values.
 
 ---
 
@@ -959,5 +978,6 @@ All requirements should remain consistent with:
 |---|---|---|
 | 1.0 | 2026-11-15 | Initial proposed requirements. |
 | 1.1 | 2026-11-15 | Approved. Added administrative password reset (FR-AUTH-005), instance administration (FR-AUTH-006), in-app invitations and the permission matrix; defined asset types; rewrote scope as a workspace-level permission model with an IP-scope requirement for active network assessment; added §4.6 Privacy and Third-Party Lookups; replaced Redis with Valkey. See [DECISIONS.md](architecture/DECISIONS.md). |
+| 1.2 | 2026-11-15 | §5.2 navigation reorganised around the user workflow (Overview, Assets, Assessments, Findings, Reports, Activity, Settings) with a mapping of every security module; no functional requirement removed. §5.3 dashboard metrics aligned with the approved UI design; active services moved to the Assets network inventory. Activity restricted to Owners and Admins per FR-WS-003. See DECISIONS.md D-037 and D-038. |
 
 **End of Document.**

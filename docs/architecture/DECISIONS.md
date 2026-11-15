@@ -42,7 +42,10 @@ This register records approved product and architecture decisions. Changing one 
 | D-032 | Design tokens; Tailwind default palette removed | 2026-11-15 | Approved; token values superseded by D-035 |
 | D-033 | Oxlint with type-aware rules, and Prettier, for the frontend | 2026-11-15 | Approved |
 | D-034 | Overview and shell built from the approved UI design, with empty states | 2026-11-15 | Approved; extended by D-035 |
-| D-035 | Full AEGIS UI design: stylesheet tokens and all seven pages, with empty states | 2026-11-15 | Approved |
+| D-035 | Full AEGIS UI design: stylesheet tokens and all seven pages, with empty states | 2026-11-15 | Approved; input border gap resolved by D-036 |
+| D-036 | Form control border token meeting WCAG non-text contrast | 2026-11-15 | Approved |
+| D-037 | Workflow-based navigation with a module mapping (PRD §5.2) | 2026-11-15 | Approved |
+| D-038 | Dashboard metrics aligned with the approved design (PRD §5.3) | 2026-11-15 | Approved |
 
 ---
 
@@ -257,7 +260,7 @@ Approved choices:
 - **Styling** was recreated with Tailwind and design tokens (the design's stylesheet was not supplied). New tokens: `violet` (text-safe accent) and `brand-950` to `brand-300` (logo and chart lines). `brand-500` is a graphic colour only: white text on it is 3.82:1, so buttons keep `primary`.
 - Charts are accessible: the donut has a text caption and a legend, and the trend chart provides a visually hidden data table.
 
-**Open item:** the design's navigation (Assets, Assessments, Findings, Reports, Activity, Settings) differs from PRD §5.2 (Assets, Reconnaissance, Network Security, Web & API Security, System Security, Threat Intelligence, Vulnerabilities, Monitoring, Reports, Settings). The PRD has not been changed; this needs a product decision.
+**Open item (resolved by D-037):** the design's navigation differed from PRD §5.2. PRD §5.2 now follows the design, with a module mapping.
 
 ## D-035 — Full AEGIS UI design
 
@@ -284,4 +287,52 @@ Deviations from the prototype, for accessibility or to follow the approved requi
 | Integrations: Slack, GitHub, Jira, webhooks, SIEM | Empty state referring to optional third-party lookups | Not in the approved requirements |
 | Small screens: horizontal navigation strip | Menu button with disclosure navigation | Kept from D-031 (focus management, Escape to close) |
 
-Known accessibility gap: input borders (#22345a) are 1.5:1 against card surfaces, below the 3:1 guideline for component boundaries. Inputs remain identifiable by their darker fill and placeholder text; this should be revisited with the design owner.
+Known accessibility gap: input borders (#22345a) are 1.5:1 against card surfaces, below the 3:1 guideline for component boundaries. Resolved by D-036.
+
+## D-036 — Form control border contrast
+
+Form control boundaries use a dedicated `field-border` token (`#566c93`) instead of the design's `#22345a`. It applies to inputs, textareas, selects, search fields (including the header search) and the list/grid view toggle.
+
+WCAG 2.2 success criterion 1.4.11 (non-text contrast) requires at least 3:1 for the visual boundary that identifies a control. Measured contrast of the new border:
+
+| Adjacent colour | Before (#22345a) | After (#566c93) |
+|---|---|---|
+| `canvas` #050b17 (field fill, page) | 1.60:1 | 3.71:1 |
+| `sidebar` #07101f (header) | 1.55:1 | 3.59:1 |
+| `surface` #091426 (card bottom) | 1.50:1 | 3.48:1 |
+| `surface-raised` #0c1a30 (card top) | 1.42:1 | 3.29:1 |
+
+Other control states already met the criterion: the focus and hover border (`chart-blue`, at least 4.56:1) and the error border (`chart-red`, at least 4.63:1). Disabled controls are exempt under 1.4.11.
+
+`line-strong` is unchanged and remains in use for non-interactive containers.
+
+## D-037 — Workflow-based navigation
+
+PRD §5.2 originally listed navigation by security module (Reconnaissance, Network Security, Web & API Security, System Security, Threat Intelligence, Vulnerabilities, Monitoring). The approved UI design organises navigation by user workflow: Overview, Assets, Assessments, Findings, Reports, Activity, Settings.
+
+Analysis showed no v0.1.0 requirement is lost:
+
+- **Renamed:** Vulnerabilities is shown as Findings, the term the PRD itself uses (FR-VULN-001).
+- **Grouped:** Reconnaissance and Network Security are assessment types under Assessments; their results (subdomains, DNS records, certificates, relationships, services by host) appear on Assets.
+- **Added:** Activity presents the workspace audit log that the PRD already requires (§4.1, FR-WS-003, FR-AUTH-006).
+- **Deferred, unchanged:** Web & API Security (Phase 06), Threat Intelligence (Phase 07), System Security (Phase 08) and Monitoring (Phase 09) appear when implemented, as §5.2 always allowed.
+
+PRD §5.2 was updated to the workflow navigation with a table mapping every module and requirement to its location. No functional requirement was removed or renamed. The frontend navigation already matched, so no code change was needed.
+
+Consequences:
+
+- **Phase 02:** Activity must be hidden from, and refused by the backend to, Analysts and Viewers, because only Owners and Admins may view the workspace audit log (FR-WS-003). Recorded in DEVELOPMENT_ROADMAP.md task 2.4; not implemented in Phase 1.2.
+- **Phase 03:** assessment scope and authorization (FR-ASSET-003, FR-ASSET-004) are managed on the Assets page.
+
+## D-038 — Dashboard metrics
+
+PRD §5.3 originally required: total assets, active services, total findings, critical findings, recent assessments, recent activity and severity distribution. The approved design shows: total assets, assessments, open findings, critical risks, risk distribution, findings trend, recent assessments and recent activity.
+
+PRD §5.3 was updated to the design's metrics:
+
+- **Total findings** remain visible as the total in the risk distribution chart; the metric card shows **open findings**, which is more useful for triage.
+- **Critical findings** are shown as **critical risks**: open findings with critical severity.
+- **Active services** move from the dashboard to the network inventory on the Assets page (FR-NET-004), where services are listed by host. No capability is removed.
+- **Assessments** and the **findings trend** are added.
+
+All statistics must still come from real application data, with empty states until data exists.

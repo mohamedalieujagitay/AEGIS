@@ -17,7 +17,7 @@ const modes = [
 /** List or grid switch for collection pages. */
 export function ViewToggle({ value, onChange, disabled = false }: ViewToggleProps) {
   return (
-    <fieldset className="flex min-w-0 rounded-control border border-line-strong bg-canvas p-0.75">
+    <fieldset className="flex min-w-0 rounded-control border border-field-border bg-canvas p-0.75">
       <legend className="sr-only">View</legend>
       {modes.map(({ value: mode, label, icon: ModeIcon }) => {
         const active = value === mode

@@ -33,6 +33,14 @@
   --color-line-strong: #22345a;
   --color-line-emphasis: #2a3c61;
 
+  /*
+   * Form control boundary (inputs, selects, search fields, view toggles).
+   * Meets WCAG 2.2 non-text contrast (1.4.11): at least 3.29:1 against the
+   * field fill and every surface a field can sit on (canvas, sidebar,
+   * surface, surface-raised). The design's original #22345a was 1.42-1.60:1.
+   */
+  --color-field-border: #566c93;
+
   /* Text */
   --color-fg-heading: #f1f5fb;
   --color-fg: #dbe4f3;

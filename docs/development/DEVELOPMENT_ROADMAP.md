@@ -227,6 +227,8 @@ Permissions must be enforced by backend authorization middleware and service-lev
 
 The detailed permission matrix is defined in PRD FR-WS-003.
 
+Navigation must follow the permission matrix. The Activity page shows the workspace audit log, which only Owners and Admins may view: hide it from Analysts and Viewers, and refuse their requests in the backend (PRD §5.2, DECISIONS.md D-037). The Phase 1.2 frontend shows Activity to everyone because no authentication exists yet.
+
 ### 2.5 Application Dashboard
 
 Implement the initial dashboard.
