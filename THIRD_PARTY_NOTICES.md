@@ -41,8 +41,10 @@ Running a tool as an external process is not assumed to resolve licensing obliga
 | PostgreSQL | Database | PostgreSQL License | Planned | |
 | Valkey | Message broker | BSD-3-Clause | Planned | Compatibility with Celery's Redis transport is **not yet verified**; to be tested in Phase 01. |
 | React | Frontend framework | MIT | Planned | |
-| TypeScript | Frontend language | Apache-2.0 | Planned | |
-| Tailwind CSS | Styling | MIT | Planned | |
+| TypeScript 7 | Frontend language | Apache-2.0 | Planned | Compatibility with linting and testing tools to be tested (DECISIONS.md D-026). |
+| Tailwind CSS | Styling | MIT | Planned | Not yet installed; integrated in a later Phase 01.2 task. |
+| Node.js 22 (>=22.22.0) | Frontend toolchain runtime | MIT | Planned | Not redistributed by AEGIS. Bundles third-party components under their own licences. |
+| npm | Frontend package manager | Artistic-2.0 | Planned | Bundled with Node.js. Not redistributed by AEGIS. |
 | Docker Engine (Moby) | Container runtime | Apache-2.0 | Planned | Not redistributed by AEGIS. |
 | Docker Compose | Service orchestration | Apache-2.0 | Planned | Not redistributed by AEGIS. |
 | Docker Desktop | Container runtime on Windows and macOS | Proprietary (Docker Subscription Service Agreement) | Planned | Not redistributed by AEGIS. Free for personal use, education and small businesses; larger organisations require a paid subscription. Users are responsible for their own licence. |
@@ -62,6 +64,27 @@ Redis 7.4 and later are licensed under RSALv2/SSPLv1, and Redis 8 adds AGPLv3 as
 | cryptography | Ed25519 job signing | Apache-2.0 OR BSD-3-Clause | Planned | Binary wheels bundle OpenSSL; verify during review. |
 | redis-py | Client used by Celery to connect to Valkey | MIT | Planned | |
 | import-linter | Architectural import contracts | BSD-2-Clause | Planned | Development dependency only. |
+
+## Frontend Packages
+
+Versions as installed in `apps/frontend/package-lock.json`.
+
+| Package | Purpose | License (preliminary) | Status | Notes |
+|---|---|---|---|---|
+| react 19.3.1 | UI library | MIT | Planned | Shipped in the production bundle. |
+| react-dom 19.3.1 | React DOM renderer | MIT | Planned | Shipped in the production bundle. |
+| scheduler 0.28.0 | React dependency | MIT | Planned | Transitive; shipped in the production bundle. |
+| vite 8.3.8 | Build tool and development server | MIT | Planned | Development only. |
+| @vitejs/plugin-react 6.3.0 | React support for Vite | MIT | Planned | Development only. |
+| @types/react, @types/react-dom, @types/node | Type definitions | MIT | Planned | Development only. |
+| react-router 8 | Routing | MIT | Planned | **Not yet installed**; installed during the routing task. |
+
+Transitive development dependencies (build time only, not shipped in the production bundle):
+
+- rolldown, postcss, picomatch, tinyglobby, fdir, nanoid, csstype, undici-types and the platform-specific TypeScript and rolldown binaries: MIT or Apache-2.0.
+- source-map-js: BSD-3-Clause. picocolors: ISC. detect-libc: Apache-2.0. tslib: 0BSD.
+- **lightningcss (MPL-2.0)**, a CSS transformer used by Vite. MPL-2.0 is a file-level copyleft licence. It is used unmodified as a build tool and is not included in the shipped bundle. **Requires licence review.**
+- Some optional WebAssembly fallback packages (`@emnapi/*`) are pre-release versions. They are not installed on Windows, macOS or Linux x64.
 
 ## Testing Tools
 
@@ -88,7 +111,8 @@ The following have not been chosen and are therefore not listed as dependencies:
 - Python dependency locking tool (Phase 01).
 - DNS library (Phase 03).
 - PDF generation library (Phase 05).
-- Node.js runtime version and frontend build tooling (deferred until frontend implementation, DECISIONS.md D-016).
+- Frontend linting and formatting tools (oxlint from the Vite template was removed; DECISIONS.md D-025).
+- Frontend data-fetching library.
 
 ## Security Assessment Integrations
 

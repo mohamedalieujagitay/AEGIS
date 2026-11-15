@@ -23,11 +23,17 @@ This register records approved product and architecture decisions. Changing one 
 | D-013 | Withdrawn | 2026-11-15 | Withdrawn |
 | D-014 | Root `tests/` for end-to-end tests; no `packages/` or top-level `workers/` | 2026-11-15 | Approved |
 | D-015 | GitHub Actions for CI | 2026-11-15 | Approved |
-| D-016 | Frontend tooling deferred until frontend implementation | 2026-11-15 | Approved |
+| D-016 | Frontend tooling deferred until frontend implementation | 2026-11-15 | Resolved by D-021 to D-026 (data-fetching library still open) |
 | D-017 | Domain verification does not authorize active assessment of resolved IPs | 2026-11-15 | Approved |
 | D-018 | Instance administrator; CLI bootstrap; open registration off by default | 2026-11-15 | Approved |
 | D-019 | Third-party lookups disabled by default | 2026-11-15 | Approved |
 | D-020 | Two worker roles: assessment and internal | 2026-11-15 | Approved |
+| D-021 | Vite 8 as the frontend build tool | 2026-11-15 | Approved |
+| D-022 | React Router 8 for routing | 2026-11-15 | Approved |
+| D-023 | npm as the frontend package manager | 2026-11-15 | Approved |
+| D-024 | Node.js 22 LTS, version 22.22.0 or later | 2026-11-15 | Approved |
+| D-025 | Template linter (oxlint) removed; linter chosen in its roadmap task | 2026-11-15 | Approved |
+| D-026 | TypeScript 7, subject to compatibility testing | 2026-11-15 | Approved, conditional |
 
 ---
 
@@ -103,6 +109,8 @@ GitHub Actions runs linting, formatting checks, type checking, import contracts 
 
 Build tool, router and data-fetching library are decided when frontend implementation begins.
 
+**Update:** build tool, router, package manager, Node.js version and TypeScript version were decided at the start of Phase 01.2 (D-021 to D-026). The data-fetching library remains open.
+
 ## D-017 — Domain verification and resolved IP addresses
 
 A verified domain may resolve to infrastructure the user does not own (CDNs, hosting and SaaS providers).
@@ -135,3 +143,29 @@ Report generation needs database access, but assessment workers must not have it
 - **Internal workers:** trusted, with database access and no outbound access.
 
 **Affects:** SYSTEM_ARCHITECTURE §6.1.
+
+## D-021 — Vite 8
+
+Vite 8 is the frontend build tool and development server. The application was initialized from the official `react-ts` template (create-vite 9.3.4), with all demonstration content removed.
+
+**Affects:** SYSTEM_ARCHITECTURE §2.1, `THIRD_PARTY_NOTICES.md`.
+
+## D-022 — React Router 8
+
+React Router 8 is the routing library. It is installed during the routing task of Phase 01.2, not before. It requires Node.js 22.22.0 or later (D-024).
+
+## D-023 — npm
+
+npm, bundled with Node.js, is the frontend package manager. `package-lock.json` is committed for reproducible installs. No additional package manager is required.
+
+## D-024 — Node.js 22.22.0 or later
+
+The frontend requires Node.js 22 LTS, version 22.22.0 or later, declared in the `engines` field of `apps/frontend/package.json`. This is the minimum required by React Router 8.
+
+## D-025 — No linter in the initial scaffold
+
+The Vite template's default linter (oxlint) was removed because it was not an approved dependency. The frontend linting and formatting tools are selected in the roadmap task "Configure frontend linting and formatting".
+
+## D-026 — TypeScript 7
+
+The frontend uses TypeScript 7 (`~7.0.2`), the version shipped with the official template. TypeScript 7 is a new native compiler, and some tooling may lag behind it. Compatibility is tested when linting and testing tools are introduced. If a required tool is incompatible, the fallback is the latest TypeScript 5.x release, recorded as a new decision.

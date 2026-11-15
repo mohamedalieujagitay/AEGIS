@@ -35,6 +35,7 @@ Prerequisites:
 
 - Git.
 - Python 3.11.
+- Node.js 22.22.0 or later, with npm (bundled with Node.js). The minimum is declared in `apps/frontend/package.json`.
 
 Set up the repository:
 
@@ -59,6 +60,17 @@ source .venv/bin/activate
 
 The `.venv/` directory is gitignored.
 
+Frontend (React, TypeScript and Vite 8, managed with npm):
+
+```bash
+cd apps/frontend
+npm install        # install dependencies from package-lock.json
+npm run dev        # start the development server
+npm run build      # type-check and create a production build in dist/
+```
+
+Use npm only. Do not commit lock files from other package managers. Commit `package-lock.json` whenever dependencies change.
+
 Line endings are normalized by `.gitattributes`. Text files are stored with LF, and Windows batch files keep CRLF. You do not need to change your editor settings, but do not commit line-ending-only changes.
 
 ### Planned
@@ -66,7 +78,7 @@ Line endings are normalized by `.gitattributes`. Text files are stored with LF, 
 | Item | Roadmap task |
 |---|---|
 | Backend dependencies declared in `apps/backend/pyproject.toml` and installed with pip | Phase 01.3 |
-| Frontend toolchain (Node.js version, package manager, build tool) | Phase 01.2 |
+| Tailwind CSS, routing (React Router 8), TypeScript configuration and frontend structure | Remaining Phase 01.2 tasks |
 | Database configuration and migrations | Phase 01.4 |
 | Docker Compose development environment and `.env.example` | Phase 01.5 |
 
@@ -82,7 +94,7 @@ There is no dependency manifest yet. Do not submit code that relies on packages 
 AEGIS/
 ├── apps/
 │   ├── backend/          # FastAPI application (foundation begins in Phase 01.3)
-│   └── frontend/         # React application (foundation begins in Phase 01.2)
+│   └── frontend/         # React + TypeScript application built with Vite 8
 ├── docs/
 │   ├── PROJECT_VISION.md
 │   ├── PRODUCT_REQUIREMENTS.md

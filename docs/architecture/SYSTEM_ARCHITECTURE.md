@@ -93,7 +93,13 @@ Internal workers (§6.1) are trusted backend components that handle tasks such a
 
 **Styling:** Tailwind CSS
 
-Build tooling, routing and data-fetching libraries will be decided when frontend implementation begins.
+**Build Tool:** Vite 8
+
+**Routing:** React Router 8
+
+**Package Manager:** npm, with Node.js 22.22.0 or later
+
+See DECISIONS.md D-021 to D-026. The data-fetching library will be decided later.
 
 Responsibilities:
 
