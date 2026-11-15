@@ -5,10 +5,10 @@
 | | |
 |---|---|
 | **Document** | Project Vision |
-| **Status** | Draft — pending approval |
-| **Version** | 0.1 |
+| **Status** | Approved |
+| **Version** | 1.1 |
 | **Last updated** | 2026-11-15 |
-| **Related** | [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md) · [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) · [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md) |
+| **Related** | [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md) · [SYSTEM_ARCHITECTURE.md](architecture/SYSTEM_ARCHITECTURE.md) · [DEVELOPMENT_ROADMAP.md](development/DEVELOPMENT_ROADMAP.md) · [DECISIONS.md](architecture/DECISIONS.md) |
 
 This document defines what AEGIS is, why it exists, who it serves and where it is going. It deliberately avoids implementation detail; that belongs in the requirements and architecture documents.
 
@@ -20,7 +20,7 @@ This document defines what AEGIS is, why it exists, who it serves and where it i
 
 AEGIS is:
 
-- **Self-hosted.** It runs on infrastructure the user controls. Assessment data never leaves the deployment unless the user exports it.
+- **Self-hosted.** It runs on infrastructure the user controls. Assessment data stays within the deployment unless the user exports it, apart from documented, optional third-party lookups that the instance administrator explicitly enables (see [External Data Flows](architecture/SYSTEM_ARCHITECTURE.md#125-external-data-flows)).
 - **Open source.** Licensed under Apache 2.0, subject to a complete dependency licence review.
 - **Authorization-first.** It only assesses targets the user has verified control of or has explicitly recorded authorization for.
 - **Evidence-driven.** Every finding is traceable to the observation that produced it.
@@ -111,7 +111,7 @@ AEGIS is organised around six capability areas. Vulnerability Management is the 
 | **Threat Intelligence** | Add context from public sources such as NVD, CISA KEV and MITRE ATT&CK. | After v0.1.0 |
 | **System Security** | Audit Linux host configuration with explicit, user-provided access. | After v0.1.0 |
 
-The exact scope and order of delivery are defined in [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md).
+The exact scope and order of delivery are defined in [DEVELOPMENT_ROADMAP.md](development/DEVELOPMENT_ROADMAP.md).
 
 ---
 
@@ -135,7 +135,7 @@ These principles guide every product and engineering decision. When two options 
    Fewer accurate, prioritised and explained findings are worth more than a long list of noise. The interface is data-rich but never cluttered.
 
 6. **Self-hosted and private.**
-   The user's data stays on the user's infrastructure. Any outbound call to a third-party service is documented and, where it's not essential, optional.
+   The user's data stays on the user's infrastructure. Any outbound call to a third-party service is documented and, where it's not essential, optional and disabled by default. AEGIS sends no telemetry. See [PRODUCT_REQUIREMENTS.md §4.6](PRODUCT_REQUIREMENTS.md#46-privacy-and-third-party-lookups).
 
 7. **Open and inspectable.**
    Code, architecture and decisions are documented so that any engineer can understand, audit and extend the system. Dependencies are chosen with licence compatibility in mind.
@@ -211,10 +211,10 @@ Success is measured by working, tested and documented functionality, not by line
 v0.1.0 is successful when a new user can:
 
 1. Deploy AEGIS with Docker by following the README, in under 15 minutes.
-2. Create an account and a workspace.
+2. Bootstrap the instance administrator account through the CLI, then create user accounts and a workspace.
 3. Register a domain and verify control of it, or register a private lab scope with an attestation.
 4. Run reconnaissance and produce an inventory of subdomains, DNS records, IP addresses and certificates.
-5. Run a TCP port, service and TLS assessment against in-scope assets.
+5. Run a TCP port, service and TLS assessment against in-scope assets (active network assessment requires the target IP addresses to be in scope, not just the domain name).
 6. Review the resulting findings in a unified, prioritised vulnerability inventory with evidence.
 7. Compare results against a previous assessment.
 8. Export a PDF or JSON report.
@@ -243,3 +243,12 @@ On the engineering side, it must also:
 > Someone with a computer engineering background should be able to inspect AEGIS and say: **"This is a serious software engineering project."**
 >
 > Every decision, from architecture to a single pull request, should be made with that standard in mind.
+
+---
+
+## 11. Revision history
+
+| Version | Date | Changes |
+|---|---|---|
+| 0.1 | 2026-11-15 | Initial draft. |
+| 1.1 | 2026-11-15 | Approved. Fixed document links; clarified that optional third-party lookups are the only exception to data staying in the deployment; aligned success criteria with instance administration and IP-scope rules. See [DECISIONS.md](architecture/DECISIONS.md). |

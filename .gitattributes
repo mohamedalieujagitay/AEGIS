@@ -1,0 +1,49 @@
+# Normalize all text files to LF in the repository and working tree
+* text=auto eol=lf
+
+# Shell scripts run inside Linux containers and must always use LF
+*.sh text eol=lf
+
+# Windows batch scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.bmp binary
+
+# Fonts
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+
+# Documents
+*.pdf binary
+
+# Archives
+*.zip binary
+*.gz binary
+*.tgz binary
+*.tar binary
+*.7z binary
+
+# Video (README demonstrations)
+*.mp4 binary
+*.webm binary
+*.mov binary
+
+# Certificates and keys in binary encodings (never committed; see .gitignore)
+*.der binary
+*.p12 binary
+*.pfx binary
+
+# Generated lock files: collapse diffs on GitHub
+package-lock.json linguist-generated=true

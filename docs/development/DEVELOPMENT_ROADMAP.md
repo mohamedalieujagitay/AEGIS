@@ -2,8 +2,10 @@
 ## DEVELOPMENT ROADMAP
 
 **Project:** AEGIS — Open-Source Cybersecurity Intelligence & Assessment Platform  
-**Version:** 1.0  
-**Status:** Proposed  
+**Version:** 1.1  
+**Status:** Approved  
+**Last Updated:** 2026-11-15  
+**Related:** [PROJECT_VISION.md](../PROJECT_VISION.md) · [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md) · [SYSTEM_ARCHITECTURE.md](../architecture/SYSTEM_ARCHITECTURE.md) · [DECISIONS.md](../architecture/DECISIONS.md)  
 **Initial Release Target:** v0.1.0  
 **License:** Apache 2.0 (subject to dependency and licensing review)
 
@@ -84,7 +86,6 @@ This phase must create a working application foundation without implementing the
 - Establish repository structure.
 - Configure `.gitignore`.
 - Create README.md.
-- Create CLAUDE.md.
 - Create documentation directory.
 - Establish licensing files.
 - Configure contribution guidelines.
@@ -102,7 +103,7 @@ This phase must create a working application foundation without implementing the
 
 ### 1.3 Backend Foundation
 
-- Initialize FastAPI.
+- Initialize FastAPI on Python 3.11 (pip, venv and `pyproject.toml`).
 - Establish modular application structure.
 - Configure API routing.
 - Implement configuration management.
@@ -114,7 +115,7 @@ This phase must create a working application foundation without implementing the
 ### 1.4 Database Foundation
 
 - Configure PostgreSQL.
-- Integrate SQLAlchemy.
+- Integrate SQLAlchemy 2.x (synchronous API) with psycopg 3.
 - Configure Alembic.
 - Establish database connection management.
 - Create initial migration structure.
@@ -123,7 +124,9 @@ This phase must create a working application foundation without implementing the
 
 - Create Dockerfiles.
 - Configure Docker Compose.
-- Configure Redis.
+- Configure Valkey as the Celery broker (JSON serialization only, ACL users per role).
+- Create the Celery application skeleton with the assessment and internal worker roles (no assessment engines yet).
+- Define Docker networks as specified in SYSTEM_ARCHITECTURE §12.2.
 - Establish development environment variables.
 - Implement health-check endpoints.
 - Establish service dependencies.
@@ -134,7 +137,8 @@ This phase must create a working application foundation without implementing the
 - Configure Vitest.
 - Establish code formatting.
 - Establish linting.
-- Create initial CI workflow.
+- Create the GitHub Actions CI workflow: linting, formatting checks, type checking, import-boundary contracts and tests on every pull request.
+- Configure import-linter contracts separating worker-side code from database code (SYSTEM_ARCHITECTURE §4.5).
 - Establish pull request conventions.
 
 ## Deliverables
@@ -142,7 +146,7 @@ This phase must create a working application foundation without implementing the
 - Functional frontend application.
 - Functional FastAPI backend.
 - PostgreSQL integration.
-- Redis integration.
+- Valkey integration.
 - Docker development environment.
 - Initial automated tests.
 - Repository documentation.
@@ -152,7 +156,8 @@ This phase must create a working application foundation without implementing the
 - All application services start successfully.
 - Frontend communicates with backend.
 - Backend connects to PostgreSQL.
-- Redis connection works.
+- Valkey connection works.
+- Import-boundary contracts pass in CI.
 - Database migrations execute successfully.
 - Health checks return expected results.
 - Automated tests pass.
@@ -180,7 +185,8 @@ Implement the foundational application functionality required to support users, 
 - Session expiration.
 - Session revocation.
 - Password hashing using Argon2id.
-- Password reset.
+- Administrator-initiated and CLI password reset (no email reset in v0.1.0; PRD FR-AUTH-005).
+- Instance administrator bootstrap through the CLI; open registration disabled by default (PRD FR-AUTH-006).
 - Login rate limiting.
 - CSRF protection.
 
@@ -202,7 +208,7 @@ Features:
 - Create workspace.
 - Rename workspace.
 - Delete workspace.
-- Invite members.
+- Invite existing users through in-app invitations (no email in v0.1.0).
 - Remove members.
 - Manage workspace permissions.
 
@@ -218,6 +224,8 @@ Implement four workspace roles.
 | Viewer | Read-only access |
 
 Permissions must be enforced by backend authorization middleware and service-level checks.
+
+The detailed permission matrix is defined in PRD FR-WS-003.
 
 ### 2.5 Application Dashboard
 
@@ -286,12 +294,12 @@ AEGIS must be capable of discovering and organizing digital assets belonging to 
 
 Support the following asset types:
 
-- Domains.
-- Subdomains.
-- IP addresses.
-- Network ranges.
-- Hosts.
-- Services.
+- Domains (a subdomain is a domain with a parent).
+- IP addresses (also represent hosts in v0.1.0).
+- CIDR ranges.
+- Services (discovered by assessments only).
+
+Asset types are defined in PRD FR-ASSET-001.
 
 Features:
 
@@ -321,6 +329,8 @@ Supported mechanisms:
 - Generate verification tokens.
 - Provide `.well-known` verification instructions.
 - Validate verification files.
+- Refuse HTTP verification for domains resolving to private or reserved addresses.
+- Execute verification requests in the assessment worker under destination controls.
 
 **Administrative Attestation**
 
@@ -342,8 +352,7 @@ Implement an explicit assessment scope system.
 
 Supported scope definitions:
 
-- Individual domains.
-- Subdomains.
+- Domains, with an explicit `include_subdomains` option.
 - Individual IP addresses.
 - CIDR ranges.
 
@@ -354,7 +363,9 @@ Requirements:
 - Scope expiration.
 - Scope status.
 - Scope ownership association.
-- Assessment-to-scope association.
+- Assessment-to-scope association through an immutable scope snapshot.
+- Scope belongs to the workspace; assets never grant scope.
+- Active network assessment requires target IP addresses to be covered by `ip` or `cidr` entries (PRD FR-ASSET-004).
 
 Every assessment must validate its targets against the approved scope.
 
@@ -387,9 +398,9 @@ Implement controlled subdomain discovery.
 
 Initial capabilities:
 
-- Certificate transparency lookups.
-- Passive DNS intelligence where available.
-- Configurable wordlist-based discovery within authorized scope.
+- Certificate transparency lookups (optional third-party lookup, disabled by default; PRD §4.6).
+- Passive DNS intelligence where available (optional third-party lookup, disabled by default).
+- Configurable wordlist-based discovery within authorized scope (requires `include_subdomains`).
 
 Discovered assets must be recorded with their discovery source and timestamp.
 
@@ -531,18 +542,18 @@ Requirements:
 
 ### 4.7 Worker Isolation
 
-Implement dedicated worker execution boundaries.
+Implement the worker execution boundaries defined in SYSTEM_ARCHITECTURE §4.5 and §6.
 
 Requirements:
 
-- No unrestricted PostgreSQL access.
-- Restricted Redis access.
-- Controlled outbound connections.
-- No privileged containers by default.
+- No database access from assessment workers, enforced by import contracts, missing credentials and network membership.
+- Ed25519-signed job payloads, verified before execution.
+- Per-job ingestion tokens and the separate ingestion listener.
+- Restricted Valkey access through ACL users.
+- Container hardening: non-root, read-only filesystem, no capabilities, no privileged mode.
 - No arbitrary shell execution.
-- Protection against internal network and metadata endpoint access.
-- Explicit DNS resolution and destination validation.
-- Protection against DNS rebinding and scope changes.
+- Destination validation for every connection (resolve, check against scope snapshot and denylist, connect to the validated address).
+- Protection against internal network and metadata endpoint access, DNS rebinding and scope changes.
 
 Workers must not trust frontend-supplied target information.
 
@@ -679,6 +690,8 @@ Features:
 
 Implement PDF and JSON reports.
 
+Report generation runs on the internal worker (SYSTEM_ARCHITECTURE §6.1).
+
 Reports should include:
 
 - Assessment information.
@@ -755,6 +768,7 @@ Before publishing v0.1.0:
 - Default configurations must be secure.
 - No credentials or secrets may be committed.
 - Dependency licensing must be reviewed.
+- Third-party lookups must be verified as disabled by default.
 - Known limitations must be documented.
 - Security disclosure instructions must be published.
 
@@ -828,6 +842,8 @@ Requirements:
 ## Objective
 
 Integrate external vulnerability and threat intelligence sources.
+
+Feeds are third-party connections and follow PRD §4.6. Internal workers have no outbound access, so the component that retrieves feeds must be designed before this phase begins.
 
 ## Tasks
 
@@ -978,7 +994,7 @@ Detect:
 Support:
 
 - In-app notifications.
-- Email notifications.
+- Email notifications (introduces SMTP configuration, which also enables email-based password reset and invitations).
 - Configurable alert rules.
 
 ### 9.4 Monitoring Dashboard
@@ -1141,8 +1157,6 @@ Maintain third-party attribution and notices where required.
 
 # 5. DEVELOPMENT WORKFLOW
 
-AEGIS will be developed using Claude as the primary AI coding assistant.
-
 Each development task must follow a controlled workflow.
 
 ## Step 1: Task Definition
@@ -1158,7 +1172,7 @@ Define:
 
 ## Step 2: Implementation Planning
 
-Claude must inspect the existing codebase and propose an implementation plan before modifying files.
+Inspect the existing codebase and propose an implementation plan before modifying files.
 
 ## Step 3: Implementation
 
@@ -1296,6 +1310,15 @@ Completion requires:
 - Acceptance criteria satisfied.
 
 The development roadmap is a living document. Changes are permitted when supported by technical evidence, architectural improvements or clearly justified product decisions.
+
+---
+
+# 10. REVISION HISTORY
+
+| Version | Date | Changes |
+|---|---|---|
+| 1.0 | 2026-11-15 | Initial proposed roadmap. |
+| 1.1 | 2026-11-15 | Approved. Valkey, Python 3.11 and synchronous SQLAlchemy in Phase 01; worker roles, Docker networks, CI and import contracts in Phase 01; administrator/CLI password reset, instance administration and in-app invitations in Phase 02; asset types and scope model aligned with the PRD in Phase 03; worker isolation rewritten in Phase 04; report generation on the internal worker in Phase 05. See [DECISIONS.md](../architecture/DECISIONS.md). |
 
 **AEGIS DEVELOPMENT MOTTO**
 

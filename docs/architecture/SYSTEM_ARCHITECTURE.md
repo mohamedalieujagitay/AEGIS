@@ -3,8 +3,10 @@
 
 **Project:** AEGIS  
 **Document:** System Architecture  
-**Version:** 1.0  
-**Status:** Proposed  
+**Version:** 1.1  
+**Status:** Approved  
+**Last Updated:** 2026-11-15  
+**Related:** [PROJECT_VISION.md](../PROJECT_VISION.md) · [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md) · [DEVELOPMENT_ROADMAP.md](../development/DEVELOPMENT_ROADMAP.md) · [DECISIONS.md](DECISIONS.md)  
 **Target Release:** v0.1.0
 
 ---
@@ -60,10 +62,10 @@ AEGIS consists of five major architectural layers:
       SERVICES   DATABASE   JOB QUEUE
           |         |          |
           |         v          v
-          |     POSTGRESQL    REDIS
+          |     POSTGRESQL    VALKEY
           |                    |
           |                    v
-          |              CELERY WORKERS
+          |          ASSESSMENT WORKERS
           |                    |
           |                    v
           |             SECURITY ENGINES
@@ -73,9 +75,11 @@ AEGIS consists of five major architectural layers:
                      INGESTION API
 ```
 
-Workers must not have direct PostgreSQL access.
+Assessment workers must not have direct PostgreSQL access.
 
 Results must enter the application through a controlled internal result-ingestion interface.
+
+Internal workers (§6.1) are trusted backend components that handle tasks such as report generation. They never contact assessment targets. They are omitted from this diagram.
 
 ---
 
@@ -88,6 +92,8 @@ Results must enter the application through a controlled internal result-ingestio
 **Language:** TypeScript
 
 **Styling:** Tailwind CSS
+
+Build tooling, routing and data-fetching libraries will be decided when frontend implementation begins.
 
 Responsibilities:
 
@@ -109,7 +115,9 @@ All security-sensitive operations must be initiated through authenticated backen
 
 **Framework:** FastAPI
 
-**Language:** Python
+**Language:** Python 3.11
+
+**Packaging:** pip, venv and `pyproject.toml`
 
 Responsibilities:
 
@@ -130,7 +138,11 @@ The backend is the central application authority.
 
 **Database:** PostgreSQL
 
-**ORM:** SQLAlchemy
+**ORM:** SQLAlchemy 2.x (synchronous API)
+
+**Driver:** psycopg 3
+
+The synchronous API is used deliberately: it is simpler to test and reason about, and FastAPI runs synchronous endpoints in a thread pool, which is sufficient for a self-hosted platform.
 
 **Migration Tool:** Alembic
 
@@ -155,31 +167,23 @@ PostgreSQL is the authoritative persistent data store.
 
 **Task Queue:** Celery
 
-**Message Broker:** Redis
+**Message Broker:** Valkey
+
+Valkey is a BSD-3-Clause, protocol-compatible fork of Redis. It was chosen over Redis 7.4+ (RSALv2/SSPLv1) and Redis 8 (adds AGPLv3) to keep licensing straightforward.
 
 Responsibilities:
 
 - Asynchronous assessments.
 - Long-running operations.
 - Scheduled tasks in future releases.
-- Background report generation.
+- Background report generation (internal worker).
 - Assessment status management.
 
-Redis must not be treated as the permanent storage location for assessment evidence.
+Rules:
 
-## 2.5 Infrastructure
-
-**Containerization:** Docker
-
-**Development Orchestration:** Docker Compose
-
-Responsibilities:
-
-- Application deployment.
-- Service isolation.
-- Environment configuration.
-- Reproducible development.
-- Dependency management.
+- Celery uses JSON serialization only. Pickle is disabled.
+- Valkey must not be treated as the permanent storage location for assessment evidence.
+- Assessment results do not return through a Celery result backend. They are submitted to the ingestion interface (§6.5).
 
 ---
 
@@ -265,7 +269,22 @@ CSRF protection must be implemented for state-changing requests.
 
 The backend will follow a modular architecture.
 
-Proposed structure:
+Repository layout:
+
+```text
+C:\AEGIS (repository root)
+├── apps/
+│   ├── backend/         # FastAPI application and both worker roles
+│   └── frontend/        # React application
+├── docs/
+├── infrastructure/      # Docker and operational scripts
+├── tests/               # Playwright end-to-end tests
+└── docker-compose.yml
+```
+
+There is no top-level `workers/` or `packages/` directory. Workers are part of the backend codebase, and a shared package directory will be introduced only when a genuine shared package exists.
+
+Backend structure:
 
 ```text
 apps/backend/
@@ -274,14 +293,17 @@ apps/backend/
 │   ├── main.py
 │   │
 │   ├── api/
-│   │   ├── v1/
+│   │   ├── v1/                # public API
 │   │   │   ├── auth.py
 │   │   │   ├── users.py
+│   │   │   ├── admin.py       # instance administration
 │   │   │   ├── workspaces.py
 │   │   │   ├── assets.py
+│   │   │   ├── scopes.py
 │   │   │   ├── assessments.py
 │   │   │   ├── findings.py
 │   │   │   └── reports.py
+│   │   └── internal/          # ingestion listener only (§6.5)
 │   │
 │   ├── core/
 │   │   ├── config.py
@@ -294,26 +316,35 @@ apps/backend/
 │   │   └── base.py
 │   │
 │   ├── models/
-│   │
 │   ├── schemas/
-│   │
 │   ├── services/
+│   │
+│   ├── contracts/             # signed job and result schemas (no database imports)
+│   ├── netguard/              # destination validation (no database imports)
 │   │
 │   ├── modules/
 │   │   ├── assets/
 │   │   ├── reconnaissance/
+│   │   │   ├── engine/        # assessment logic (no database imports)
+│   │   │   └── service.py     # API-side orchestration
 │   │   ├── network/
-│   │   ├── web_security/
-│   │   ├── system_audit/
-│   │   ├── threat_intel/
-│   │   └── vulnerabilities/
+│   │   │   ├── engine/
+│   │   │   └── service.py
+│   │   ├── vulnerabilities/
+│   │   ├── web_security/      # later phase
+│   │   ├── system_audit/      # later phase
+│   │   └── threat_intel/      # later phase
 │   │
 │   └── workers/
+│       ├── assessment/        # untrusted role (no database imports)
+│       └── internal/          # trusted role
 │
 ├── migrations/
 ├── tests/
 └── pyproject.toml
 ```
+
+Directories are created when the phase that needs them begins. Later-phase modules are shown for orientation only.
 
 ## 4.2 API Layer
 
@@ -356,6 +387,29 @@ Modules should expose defined interfaces rather than importing arbitrary interna
 
 The vulnerability management module receives standardized findings from assessment modules.
 
+## 4.5 Enforced Import Boundaries
+
+The following packages form the **worker side** of the application:
+
+- `app.workers.assessment`
+- `app.modules.*.engine`
+- `app.netguard`
+- `app.contracts`
+
+Worker-side packages must not import:
+
+- `app.database`, `app.models`, `app.services` or `app.api`.
+- `sqlalchemy`, `psycopg` or `alembic`.
+
+Enforcement:
+
+1. **Static:** import-linter "forbidden" contracts, configured in `pyproject.toml` and run in CI. A violation fails the build.
+2. **Runtime:** assessment worker containers receive no database credentials and are not attached to the `data` network (§12.2).
+
+Both worker roles use the same container image with a different command. The image therefore contains the database driver code, which is why the static contract and the absence of credentials and network access are used together.
+
+Engines of one module must not import the internals of another module.
+
 ---
 
 # 5. DATABASE ARCHITECTURE
@@ -369,13 +423,18 @@ Initial entities include:
 ```text
 users
 sessions
+instance_settings
 workspaces
 workspace_members
+workspace_invitations
 assets
-asset_verifications
-assessment_scopes
+asset_relationships
+authorization_records
+scope_entries
 assessments
+assessment_scope_snapshots
 assessment_jobs
+observations
 findings
 finding_evidence
 finding_history
@@ -383,31 +442,44 @@ audit_logs
 reports
 ```
 
+Entity names are indicative. The definitive schema is defined by Alembic migrations.
+
 ## 5.2 Entity Relationships
 
 Conceptual relationships:
 
 ```text
-USER
+USER (instance administrator flag)
  |
- +---- WORKSPACES
-          |
-          +---- MEMBERS
-          |
-          +---- ASSETS
-          |       |
-          |       +---- ASSESSMENT SCOPES
-          |
-          +---- ASSESSMENTS
-          |       |
-          |       +---- FINDINGS
-          |               |
-          |               +---- EVIDENCE
-          |               |
-          |               +---- HISTORY
-          |
-          +---- REPORTS
+ +---- WORKSPACE MEMBERSHIPS (role) ---- WORKSPACE
+                                           |
+                                           +---- INVITATIONS
+                                           |
+                                           +---- AUTHORIZATION RECORDS (dns | http | attestation)
+                                           |       |
+                                           |       +---- SCOPE ENTRIES (domain | ip | cidr)
+                                           |
+                                           +---- ASSETS (domain | ip_address | cidr_range | service)
+                                           |       |
+                                           |       +---- ASSET RELATIONSHIPS
+                                           |
+                                           +---- ASSESSMENTS
+                                           |       |
+                                           |       +---- SCOPE SNAPSHOT (immutable)
+                                           |       +---- JOBS
+                                           |       +---- OBSERVATIONS
+                                           |
+                                           +---- FINDINGS (linked to assets and assessments)
+                                           |       |
+                                           |       +---- EVIDENCE (references observations)
+                                           |       +---- HISTORY
+                                           |
+                                           +---- REPORTS
+                                           |
+                                           +---- AUDIT LOGS
 ```
+
+Scope entries belong to the workspace, not to assets. Assets are inventory; scope is permission (PRD FR-ASSET-004).
 
 ## 5.3 Database Rules
 
@@ -427,9 +499,22 @@ Assessment history and audit records must not be silently discarded when applica
 
 ## 6.1 Overview
 
-AEGIS uses Celery workers for long-running assessment tasks.
+AEGIS uses Celery workers for work that must not run inside an API request.
 
 The API must not execute lengthy security assessments synchronously.
+
+There are two worker roles. They use the same image with different commands and queues.
+
+| | Assessment worker | Internal worker |
+|---|---|---|
+| Trust | Untrusted: processes data influenced by assessment targets | Trusted backend component |
+| Queues | `assessment.*` | `internal.*` |
+| Database access | None: no credentials, not on the `data` network, import contract (§4.5) | Yes |
+| Outbound internet | Yes, through the `egress` network under §12.2 controls | None |
+| Typical tasks | DNS, subdomain, TCP, service and TLS engines; HTTP verification requests | Report generation; expiring tokens, scopes and invitations |
+| Result path | Internal ingestion listener (§6.5) | Backend services directly |
+
+The internal worker must never execute assessment engines or contact assessment targets.
 
 ## 6.2 Job Execution Flow
 
@@ -446,81 +531,109 @@ FASTAPI
 AUTHENTICATION
  |
  v
-AUTHORIZATION
+AUTHORIZATION (workspace RBAC)
  |
  v
-SCOPE VALIDATION
+SCOPE VALIDATION (including resolved IP addresses)
  |
  v
-JOB CREATION
+JOB CREATION (scope snapshot, ingestion token, Ed25519 signature)
  |
  v
-REDIS QUEUE
+VALKEY QUEUE
  |
  v
-CELERY WORKER
+ASSESSMENT WORKER
  |
  v
-ASSESSMENT EXECUTION
+SIGNATURE AND EXPIRY CHECK
  |
  v
-RESULT VALIDATION
+ASSESSMENT EXECUTION (destination re-validated before every connection)
  |
  v
-INTERNAL RESULT INGESTION API
+INTERNAL INGESTION LISTENER
+ |
+ v
+RESULT VALIDATION (token, job state, schema, scope snapshot, idempotency)
  |
  v
 POSTGRESQL
 ```
 
-## 6.3 Worker Responsibilities
+## 6.3 Assessment Worker Responsibilities
 
-Workers must:
+Assessment workers must:
 
-- Receive authorized assessment jobs.
-- Validate job integrity.
-- Execute approved assessment operations.
-- Enforce execution timeouts.
+- Verify the job signature and expiry before execution, and reject unsigned or invalid jobs.
+- Execute only the engine named in the job. There is no shell execution and no subprocess built from user input.
+- Enforce the job's scope snapshot and the destination controls in §12.2 for every connection.
+- Enforce execution timeouts, concurrency limits and rate limits.
 - Collect assessment evidence.
-- Submit results through the internal result-ingestion interface.
-- Record execution failures.
+- Submit results, progress and failures through the ingestion listener.
+- Stop execution when a progress submission reports that the job has been cancelled.
 
-## 6.4 Worker Isolation
+## 6.4 Job Integrity: Signed Payloads
 
-Workers must operate with restricted privileges.
+The backend signs every job payload with an **Ed25519** private key.
 
-Requirements:
+- Only the backend holds the private key. Assessment workers hold only the public key, so a compromised worker cannot forge jobs that other workers would accept. A shared HMAC key could not provide this guarantee.
+- The signed payload contains: job ID, assessment ID, workspace ID, engine, targets, scope snapshot, execution limits, ingestion token, issued-at time, expiry time and signing key ID.
+- Workers reject payloads with an invalid signature, an unknown key ID, an expired timestamp or an unknown engine.
+- The signed document is carried as a JSON task argument.
+- Keys are generated at installation, supplied as secrets, never committed to Git, and rotated using the key ID.
 
-- No privileged containers by default.
-- No direct PostgreSQL connection.
-- Restricted Redis access.
-- Controlled outbound networking.
-- No arbitrary command execution.
-- Resource limits.
-- Execution timeouts.
-- Controlled result submission.
-
-Network egress must be restricted to approved assessment destinations and required infrastructure endpoints.
-
-Worker access to internal services, cloud metadata endpoints and unrelated private networks must be blocked.
-
-The application must validate resolved IP addresses and revalidate destinations immediately before network connections to mitigate DNS rebinding and related SSRF risks.
+Limitation: payloads are signed, not encrypted. Any assessment worker can read the job payloads in its queues, including other jobs' ingestion tokens.
 
 ## 6.5 Result Ingestion
 
-The backend must expose a private, authenticated result-ingestion interface.
+The backend exposes ingestion on a **separate listener** (a separate ASGI application on its own port):
 
-It must:
+- The listener serves only ingestion routes. The public API does not serve them.
+- It is attached only to the `ingest` network and is never published to the host.
 
-- Authenticate worker submissions.
-- Associate results with valid jobs.
-- Validate result structure.
-- Reject unauthorized or unexpected results.
-- Prevent duplicate processing.
-- Store evidence metadata.
-- Create standardized findings.
+Per-job ingestion token:
+
+- A 256-bit random token is generated when the job is created.
+- The database stores only its hash.
+- The token is valid only while the job is in a non-terminal state.
+
+Every submission must pass these checks:
+
+1. The token matches the job.
+2. The job is in a state that accepts results.
+3. The payload matches the engine's strict, size-limited result schema.
+4. Every host, address and name in the results lies within the job's scope snapshot. Out-of-scope data is rejected and audit-logged as a security event.
+5. An idempotency key (job ID and sequence number) prevents duplicate processing.
+
+Accepted results are normalized into observations and findings by backend services.
 
 Workers must not be trusted simply because they operate inside Docker.
+
+Limitation: a compromised assessment worker could submit fabricated, in-scope results for another active job whose token it read from the queue. Mitigations:
+
+- Tokens are short-lived and bound to one job.
+- The scope snapshot check prevents injecting out-of-scope data.
+- All submissions are audit-logged.
+
+Per-worker queue isolation and credentials are possible future work.
+
+## 6.6 Worker Container Hardening
+
+Assessment worker containers must:
+
+- Run as a non-root user.
+- Use a read-only root filesystem, with a tmpfs for temporary files.
+- Drop all Linux capabilities. TCP connection-based assessment needs none, including `NET_RAW`.
+- Set `no-new-privileges` and never run in privileged mode.
+- Apply CPU, memory and process-count limits.
+- Apply Celery soft and hard task time limits.
+
+Valkey access:
+
+- Separate ACL users for the backend, assessment workers and internal workers.
+- Workers are denied administrative and dangerous commands (for example `CONFIG`, `FLUSHALL`, `FLUSHDB`, `KEYS`, `DEBUG`, `MODULE`).
+- Key patterns restrict each role to its own queues where Celery's key layout allows. The exact patterns are validated during Phase 01 implementation.
 
 ---
 
@@ -554,7 +667,7 @@ Responsible for controlled subdomain discovery using approved passive and config
 
 **TCP Assessment Engine**
 
-Responsible for TCP connection-based port assessment.
+Responsible for TCP connection-based port assessment. Targets must be IP addresses covered by `ip` or `cidr` scope entries.
 
 **Service Identification Engine**
 
@@ -564,11 +677,17 @@ Responsible for collecting and classifying available service information.
 
 Responsible for certificate and TLS configuration inspection.
 
+**Verification Fetcher**
+
+Performs HTTP verification requests (§10.1) under the same destination controls as the engines.
+
 ## 7.3 Engine Integration
 
 Assessment engines must not directly modify arbitrary application database records.
 
 They return structured results that pass through the result-ingestion process.
+
+Engines receive a validated job and perform network access only through `app.netguard`. They do not import database code (§4.5).
 
 ---
 
@@ -674,35 +793,54 @@ Every sensitive backend operation must validate:
 
 Frontend restrictions are not security boundaries.
 
+### Instance Administrator
+
+The instance administrator is an instance-level flag, separate from workspace roles.
+
+- It allows management of user accounts, registration settings and third-party lookup providers (PRD FR-AUTH-006).
+- It grants no implicit access to workspace data.
+- The first instance administrator is created through the CLI. No default credentials are shipped.
+
+## 9.3 Account Recovery
+
+In v0.1.0, password reset is performed by the instance administrator or through a CLI command on the server (PRD FR-AUTH-005). Every reset revokes the user's sessions. There is no self-service or email-based reset until SMTP support is introduced.
+
 ---
 
 # 10. ASSET AUTHORIZATION ARCHITECTURE
 
 ## 10.1 Authorization Mechanisms
 
-Public domains may use:
+| Mechanism | Applies to | Proof |
+|---|---|---|
+| DNS TXT verification | Public domains | `_aegis-verification.<domain>` TXT record `aegis-verification=<token>` |
+| HTTP verification | Public domains resolving to public addresses | Token file under `/.well-known/aegis-verification/` |
+| Administrative attestation | Private IPs and CIDRs, lab environments, public IPs and CIDRs | Recorded statement by an Owner or Admin, with optional evidence reference and expiry |
 
-- DNS TXT verification.
-- HTTP verification.
+HTTP verification rules:
 
-Private assessment environments may use:
+- It is performed by an assessment worker, never by the API process.
+- Every destination passes the controls in §12.2.
+- Domains resolving to private or reserved addresses are refused; those targets use attestation.
+- Redirects to a different host are never followed.
+- Response size and time are limited.
+- Tokens are compared in constant time.
 
-- Administrative authorization attestation.
-- Explicit scope registration.
-- Recorded authorization evidence.
+Verification tokens are random, single-purpose and expire. Authorization records expire and must be renewed.
 
-## 10.2 Scope Enforcement
+## 10.2 Scope Model
 
-Every active assessment must reference an approved scope.
+Scope entries belong to the workspace and reference an authorization record. The full model and coverage rules are defined in PRD FR-ASSET-004.
 
-The system must validate:
+The key rule: verifying a domain does not authorize active network assessment of the addresses it resolves to. TCP port assessment, service identification and TLS inspection on ports other than 443 require `ip` or `cidr` scope entries.
 
-- Target domain.
-- Resolved IP address.
-- IP range membership.
-- Scope expiration.
-- Workspace association.
-- Authorization status.
+## 10.3 Scope Enforcement
+
+Scope is enforced at three points:
+
+1. **API, at job creation.** Checks authorization status, expiry, workspace association and target membership. Domain targets of network assessments are resolved, and only covered addresses are included. The scope snapshot is stored.
+2. **Assessment worker, before every connection.** The worker resolves the name, checks every resulting address against the snapshot and the denylist (§12.2), then connects to that exact address without resolving again. This is the primary defense against DNS rebinding.
+3. **Ingestion listener.** Results containing data outside the snapshot are rejected (§6.5).
 
 Redirects and DNS resolution must not allow assessments to escape approved scope.
 
@@ -725,6 +863,7 @@ Initial API prefix:
 ```text
 /api/v1/auth
 /api/v1/users
+/api/v1/admin
 /api/v1/workspaces
 /api/v1/assets
 /api/v1/scopes
@@ -733,7 +872,7 @@ Initial API prefix:
 /api/v1/reports
 ```
 
-Internal worker communication must use a separate, authenticated interface.
+Assessment workers communicate with the backend only through the internal ingestion listener (§6.5). It runs on a separate port that is not reachable from the public API network.
 
 ## 11.3 API Requirements
 
@@ -760,44 +899,75 @@ AEGIS
  |
  +-- frontend
  |
- +-- backend
+ +-- backend             (public API + internal ingestion listener)
  |
  +-- postgres
  |
- +-- redis
+ +-- valkey
  |
- +-- worker
+ +-- worker-assessment   (untrusted role)
+ |
+ +-- worker-internal     (trusted role)
 ```
 
-## 12.2 Network Segmentation
+## 12.2 Network Segmentation and Egress Controls
 
-Docker networks must separate application responsibilities.
+### Networks
 
-Proposed logical networks:
+| Network | Compose `internal` | Members | Purpose |
+|---|---|---|---|
+| `edge` | No | frontend, backend (public API) | User traffic. Also gives the backend outbound DNS for scope validation. |
+| `data` | Yes | backend, worker-internal, postgres | Database access |
+| `queue` | Yes | backend, worker-assessment, worker-internal, valkey | Job queue |
+| `ingest` | Yes | backend (ingestion listener), worker-assessment | Result submission |
+| `egress` | No | worker-assessment only | Outbound assessment traffic |
 
-**Frontend Network**
+Subnets for all AEGIS networks are set explicitly in Compose so they can be added to the denylist.
 
-Connects frontend and backend.
+### What Docker Compose cannot do
 
-**Data Network**
+Docker Compose cannot restrict outbound traffic per destination. A container on a non-internal network such as `egress` can reach:
 
-Connects backend to PostgreSQL.
+- The internet.
+- The host's local network.
+- The host itself, including `host.docker.internal` on Docker Desktop.
 
-**Queue Network**
+The architecture therefore does not rely on Compose for egress filtering.
 
-Connects backend and workers to Redis.
+### Controls
 
-**Worker Egress Network**
+1. **Application-level destination validation (`app.netguard`).** It runs for every connection:
+   - Resolve the name.
+   - Normalize addresses, including IPv4-mapped IPv6.
+   - Check each address against the scope snapshot and the denylist.
+   - Connect to that exact address.
+2. **Container hardening** (§6.6).
+3. **Valkey ACLs** limiting each role's commands and keys (§6.6).
+4. **Optional host firewall rules** (the `DOCKER-USER` iptables chain) on Linux hosts, documented as additional hardening. They are not available on Docker Desktop for Windows or macOS.
 
-Provides controlled outbound assessment connectivity.
+### Denylist
 
-Worker containers must not have unrestricted access to internal application services.
+These addresses are never in scope and never contacted:
+
+- `0.0.0.0/8`, `127.0.0.0/8`, `::/128`, `::1/128`.
+- `169.254.0.0/16` and `fe80::/10` (link-local, including the `169.254.169.254` cloud metadata endpoint).
+- Known cloud metadata addresses outside link-local ranges (for example `fd00:ec2::254`).
+- Multicast (`224.0.0.0/4`, `ff00::/8`), reserved (`240.0.0.0/4`) and broadcast addresses.
+- The subnets of AEGIS's own Docker networks.
+
+Private and shared ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `fc00::/7`) are refused unless covered by an attestation-backed scope entry.
+
+### Platform notes
+
+On Docker Desktop (Windows and macOS), containers reach private lab networks through the host's network address translation. Lab assessment works when the host can route to the lab. Host-level firewall hardening is not available, so the application-level controls are the enforced boundary.
 
 ## 12.3 Configuration
 
 Configuration must use environment variables.
 
 Sensitive credentials must not be committed to Git.
+
+Secrets include the database password, Valkey ACL passwords, the Ed25519 signing key, the session secret and third-party provider API keys. They are supplied through environment variables or Docker secrets. The assessment worker receives only the secrets it needs: its Valkey credentials and the signing public key.
 
 Provide:
 
@@ -813,8 +983,23 @@ The system must distinguish:
 
 - Application health.
 - Database health.
-- Redis health.
+- Valkey (broker) health.
 - Worker availability.
+
+## 12.5 External Data Flows
+
+The table below lists every connection that leaves the deployment.
+
+| Connection | Component | Data sent | Default |
+|---|---|---|---|
+| DNS resolution | Backend (scope validation), assessment worker | Queried names | Always on; resolver configurable |
+| Assessment traffic | Assessment worker | Connections to in-scope targets | On user request |
+| HTTP verification | Assessment worker | Request for the verification file | On user request |
+| Certificate transparency search | Assessment worker | Domain names | Disabled |
+| Passive DNS | Assessment worker | Domain names and API key | Disabled |
+| Vulnerability intelligence feeds | To be designed in Phase 07 | Download requests | Disabled |
+
+Requirements are defined in PRD §4.6. AEGIS sends no telemetry, analytics or update checks.
 
 ---
 
@@ -846,6 +1031,8 @@ Record important security events:
 - Assessment execution.
 - Finding modifications.
 - Report generation.
+- Instance administration actions (account creation, password resets, setting changes).
+- Rejected ingestion submissions and blocked out-of-scope connections.
 
 ## 13.3 Error Handling
 
@@ -870,6 +1057,8 @@ Test categories:
 - Authorization tests.
 - Security tests.
 - Worker tests.
+- Import-boundary contract checks.
+- Scope-escape and SSRF tests (DNS rebinding, redirects, denylisted addresses).
 
 ## 14.2 Frontend Testing
 
@@ -903,6 +1092,17 @@ Test complete user workflows:
 Use controlled local environments and deliberately vulnerable test applications.
 
 Never perform automated security tests against systems without authorization.
+
+## 14.5 Continuous Integration
+
+GitHub Actions runs on every pull request:
+
+- Linting and formatting checks.
+- Type checking.
+- Import-boundary contracts (§4.5).
+- Backend and frontend tests.
+
+The specific lint and type-check tools are selected during Phase 01.
 
 ---
 
@@ -941,7 +1141,7 @@ Decisions should consider:
 - Operational requirements.
 - Future extensibility.
 
-Claude must not independently replace approved architectural components or introduce microservices without explicit approval.
+Contributors must not independently replace approved architectural components or introduce microservices without explicit approval.
 
 ---
 
@@ -959,5 +1159,14 @@ The architecture is considered implemented progressively as:
 8. Reports are generated from persistent data.
 9. Docker deployment is reproducible.
 10. Automated integration tests validate the complete system.
+
+---
+
+# 18. REVISION HISTORY
+
+| Version | Date | Changes |
+|---|---|---|
+| 1.0 | 2026-11-15 | Initial proposed architecture. |
+| 1.1 | 2026-11-15 | Approved. Python 3.11, synchronous SQLAlchemy 2.x with psycopg 3, Valkey; two worker roles; enforced import boundaries (§4.5); Ed25519-signed jobs, per-job ingestion tokens and a separate ingestion listener (§6.4–6.5); container hardening (§6.6); workspace-level scope model and enforcement points (§10); network segmentation rewritten to state Docker Compose limits (§12.2); external data flows (§12.5); CI (§14.5). See [DECISIONS.md](DECISIONS.md). |
 
 **End of Document.**
