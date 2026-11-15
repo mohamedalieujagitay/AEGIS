@@ -206,17 +206,25 @@ apps/frontend/
 │
 ├── src/
 │   ├── app/
-│   │   ├── router/
+│   │   ├── router/        # routes.tsx, router.ts, paths.ts
+│   │   ├── layout/        # AppLayout (application shell)
+│   │   ├── navigation/    # primary navigation configuration
+│   │   ├── pages/         # application-level pages (not found, errors)
 │   │   └── providers/
 │   │
 │   ├── components/
-│   │   ├── ui/
-│   │   ├── layout/
+│   │   ├── ui/            # Button, Input, Card, Badge, EmptyState, typography
+│   │   ├── layout/        # PageContainer, SideNav, SkipLink
+│   │   ├── icons/         # inline SVG icons and the AEGIS logo
+│   │   ├── data/          # StatCard, charts, DataTable, ActivityList, FilterTabs, ViewToggle
 │   │   └── shared/
 │   │
 │   ├── features/
 │   │   ├── authentication/
-│   │   ├── dashboard/
+│   │   ├── dashboard/     # pages/OverviewPage (landing route)
+│   │   ├── activity/      # pages/ActivityPage (audit log)
+│   │   ├── assessments/   # pages/AssessmentsPage
+│   │   ├── settings/      # pages/SettingsPage
 │   │   ├── workspaces/
 │   │   ├── assets/
 │   │   ├── reconnaissance/
@@ -225,7 +233,7 @@ apps/frontend/
 │   │   └── reports/
 │   │
 │   ├── hooks/
-│   ├── lib/
+│   ├── lib/               # small utilities (cx, document titles)
 │   ├── services/
 │   ├── types/
 │   └── styles/
@@ -1108,7 +1116,7 @@ GitHub Actions runs on every pull request:
 - Import-boundary contracts (§4.5).
 - Backend and frontend tests.
 
-The specific lint and type-check tools are selected during Phase 01.
+Frontend: `tsc` (type checking), Oxlint with type-aware rules (linting) and Prettier (formatting); see DECISIONS.md D-033. The backend lint and type-check tools are selected during Phase 01.6.
 
 ---
 

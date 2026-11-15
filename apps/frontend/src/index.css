@@ -1,1 +1,141 @@
-/* Global styles. Tailwind CSS is integrated in a later Phase 01.2 task. */
+/*
+ * Global styling entry point and AEGIS design tokens.
+ *
+ * Values follow the approved AEGIS UI design (DECISIONS.md D-034, D-035).
+ * Tailwind CSS v4 is configured CSS-first: there is no tailwind.config file.
+ * Tokens defined in @theme generate utilities, for example --color-surface
+ * produces bg-surface, text-surface and border-surface.
+ *
+ * Tailwind's default colour palette is removed (--color-*: initial), so only
+ * the project tokens below are available as colour utilities. Add a token
+ * here rather than using an arbitrary colour in a component.
+ *
+ * Text tokens meet WCAG AA (4.5:1) on every surface. Graphic tokens (charts,
+ * icons) meet 3:1. Re-check contrast when changing a value.
+ */
+@import 'tailwindcss';
+
+@theme {
+  --color-*: initial;
+
+  /* Surfaces */
+  --color-canvas: #050b17;
+  --color-sidebar: #07101f;
+  --color-surface: #091426;
+  --color-surface-raised: #0c1a30;
+  --color-surface-hover: #0e1d36;
+  --color-surface-overlay: #0d1b33;
+  --color-surface-muted: #14213d;
+
+  /* Borders */
+  --color-line-soft: #111e36;
+  --color-line: #172540;
+  --color-line-strong: #22345a;
+  --color-line-emphasis: #2a3c61;
+
+  /* Text */
+  --color-fg-heading: #f1f5fb;
+  --color-fg: #dbe4f3;
+  --color-fg-muted: #b4c0d6;
+  --color-fg-subtle: #7d8ba6;
+
+  /* Primary accent */
+  --color-primary: #2563eb;
+  --color-primary-from: #226cee;
+  --color-primary-to: #1a5fd6;
+  --color-primary-hover-from: #1a63e0;
+  --color-primary-hover-to: #1a56c4;
+  --color-primary-fg: #ffffff;
+  --color-primary-strong: #1a6bf0;
+  --color-focus: #2f7dff;
+
+  /* Navigation */
+  --color-nav-active-from: #1d4fa8;
+  --color-nav-active-to: #1a4691;
+  --color-toggle-active: #14407f;
+
+  /* Status text (also used with opacity modifiers for tinted backgrounds) */
+  --color-success: #3ddc84;
+  --color-warning: #fbbf24;
+  --color-danger: #ff8b8b;
+  --color-info: #4c93ff;
+  --color-violet: #b79cff;
+
+  /* Graphic colours for icons, charts and tints (3:1 minimum, not for body text) */
+  --color-chart-blue: #2f7dff;
+  --color-chart-violet: #8b5cf6;
+  --color-chart-orange: #f59e0b;
+  --color-chart-red: #ef4444;
+  --color-chart-green: #22c55e;
+  --color-chart-yellow: #eab308;
+  --color-chart-gray: #8aa0c4;
+  --color-chart-grid: #1c2a44;
+
+  /* Finding severity: graphic colour, and a text colour for labels */
+  --color-severity-critical: #ef4444;
+  --color-severity-high: #fb923c;
+  --color-severity-medium: #fbbf24;
+  --color-severity-low: #2f7dff;
+  --color-severity-info: #8aa0c4;
+  --color-severity-critical-text: #ff7b7b;
+  --color-severity-high-text: #fbad2d;
+  --color-severity-medium-text: #f2cb3b;
+  --color-severity-low-text: #5b9bff;
+  --color-severity-info-text: #a9b8d4;
+
+  /* Brand blues (logo) */
+  --color-brand-950: #0b1e45;
+  --color-brand-900: #0f2f66;
+  --color-brand-600: #1a6bff;
+  --color-brand-500: #2f7dff;
+  --color-brand-300: #7fb2ff;
+
+  /* Typography: system fonts only (Inter is used if installed locally; nothing is downloaded) */
+  --font-sans:
+    Inter, 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --text-display: 2.0625rem;
+  --text-display--line-height: 1.15;
+  --text-title: 1.1875rem;
+  --text-title--line-height: 1.3;
+  --text-body: 0.96875rem;
+  --text-body--line-height: 1.45;
+
+  /* Radii */
+  --radius-badge: 0.4375rem;
+  --radius-control: 0.625rem;
+  --radius-card: 0.875rem;
+
+  /* Shadows */
+  --shadow-primary: 0 6px 18px rgb(26 107 240 / 0.35);
+  --shadow-overlay: 0 18px 50px rgb(0 0 0 / 0.55);
+
+  /* Layout */
+  --container-content: 100rem;
+
+  /*
+   * Layout breakpoints from the AEGIS UI design. Named breakpoints are always
+   * ordered by size, unlike arbitrary min-[...] variants.
+   */
+  --breakpoint-split: 68.75rem; /* 1100px: list with a side panel */
+  --breakpoint-charts: 75rem; /* 1200px: two-column chart and table rows */
+  --breakpoint-stats4: 87.5rem; /* 1400px: four metric cards per row */
+  --breakpoint-stats5: 93.75rem; /* 1500px: five metric cards per row */
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply min-h-screen bg-canvas font-sans text-fg antialiased;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+
+  ::selection {
+    @apply bg-chart-blue/40 text-fg-heading;
+  }
+}

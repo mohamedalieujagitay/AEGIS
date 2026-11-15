@@ -42,7 +42,7 @@ Running a tool as an external process is not assumed to resolve licensing obliga
 | Valkey | Message broker | BSD-3-Clause | Planned | Compatibility with Celery's Redis transport is **not yet verified**; to be tested in Phase 01. |
 | React | Frontend framework | MIT | Planned | |
 | TypeScript 7 | Frontend language | Apache-2.0 | Planned | Compatibility with linting and testing tools to be tested (DECISIONS.md D-026). |
-| Tailwind CSS | Styling | MIT | Planned | Not yet installed; integrated in a later Phase 01.2 task. |
+| Tailwind CSS 4 | Styling | MIT | Planned | Installed through the official Vite plugin (see Frontend Packages). |
 | Node.js 22 (>=22.22.0) | Frontend toolchain runtime | MIT | Planned | Not redistributed by AEGIS. Bundles third-party components under their own licences. |
 | npm | Frontend package manager | Artistic-2.0 | Planned | Bundled with Node.js. Not redistributed by AEGIS. |
 | Docker Engine (Moby) | Container runtime | Apache-2.0 | Planned | Not redistributed by AEGIS. |
@@ -77,13 +77,23 @@ Versions as installed in `apps/frontend/package-lock.json`.
 | vite 8.3.8 | Build tool and development server | MIT | Planned | Development only. |
 | @vitejs/plugin-react 6.3.0 | React support for Vite | MIT | Planned | Development only. |
 | @types/react, @types/react-dom, @types/node | Type definitions | MIT | Planned | Development only. |
-| react-router 8 | Routing | MIT | Planned | **Not yet installed**; installed during the routing task. |
+| react-router 8.5.1 | Routing | MIT | Planned | Shipped in the production bundle. |
+| @remix-run/route-pattern 0.22.1 | React Router dependency | MIT | Planned | Transitive; shipped in the production bundle. |
+| cookie-es 3.1.1 | React Router dependency | MIT | Planned | Transitive; shipped in the production bundle. |
+| tailwindcss 4.3.5 | Utility-first CSS framework | MIT | Planned | Development only. Generates CSS at build time; only the generated CSS is shipped. |
+| @tailwindcss/vite 4.3.5 | Official Tailwind CSS integration for Vite | MIT | Planned | Development only. |
+| oxlint 1.93.0 | Linter | MIT | Planned | Development only. Platform-specific binaries (`@oxlint/binding-*`, MIT); bundled components to be verified during review. |
+| oxlint-tsgolint 7.0.2007 | Type-aware lint rules for Oxlint, built on TypeScript 7 | MIT | Planned | Development only. Platform-specific binaries (`@oxlint-tsgolint/*`, MIT); bundled components to be verified during review. |
+| prettier 3.10.1 | Code formatter | MIT | Planned | Development only. |
+| prettier-plugin-tailwindcss 0.8.1 | Tailwind CSS class sorting for Prettier | MIT | Planned | Development only. |
 
 Transitive development dependencies (build time only, not shipped in the production bundle):
 
 - rolldown, postcss, picomatch, tinyglobby, fdir, nanoid, csstype, undici-types and the platform-specific TypeScript and rolldown binaries: MIT or Apache-2.0.
 - source-map-js: BSD-3-Clause. picocolors: ISC. detect-libc: Apache-2.0. tslib: 0BSD.
-- **lightningcss (MPL-2.0)**, a CSS transformer used by Vite. MPL-2.0 is a file-level copyleft licence. It is used unmodified as a build tool and is not included in the shipped bundle. **Requires licence review.**
+- Tailwind CSS build dependencies: @tailwindcss/node, @tailwindcss/oxide and its platform-specific binaries, enhanced-resolve, jiti, magic-string, tapable and @jridgewell/*: MIT.
+- graceful-fs: BlueOak-1.0.0 (Blue Oak Model License, a permissive licence).
+- **lightningcss (MPL-2.0)**, a CSS transformer used by Vite and Tailwind CSS. MPL-2.0 is a file-level copyleft licence. It is used unmodified as a build tool and is not included in the shipped bundle. **Requires licence review.**
 - Some optional WebAssembly fallback packages (`@emnapi/*`) are pre-release versions. They are not installed on Windows, macOS or Linux x64.
 
 ## Testing Tools
@@ -107,11 +117,10 @@ Transitive development dependencies (build time only, not shipped in the product
 
 The following have not been chosen and are therefore not listed as dependencies:
 
-- Lint, formatting and type-checking tools (Phase 01).
+- Python lint, formatting and type-checking tools (Phase 01.6).
 - Python dependency locking tool (Phase 01).
 - DNS library (Phase 03).
 - PDF generation library (Phase 05).
-- Frontend linting and formatting tools (oxlint from the Vite template was removed; DECISIONS.md D-025).
 - Frontend data-fetching library.
 
 ## Security Assessment Integrations

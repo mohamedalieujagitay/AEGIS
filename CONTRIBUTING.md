@@ -66,6 +66,10 @@ Frontend (React, TypeScript and Vite 8, managed with npm):
 cd apps/frontend
 npm install        # install dependencies from package-lock.json
 npm run dev        # start the development server
+npm run typecheck  # run strict TypeScript checks
+npm run lint       # lint with Oxlint, including type-aware rules
+npm run format     # format with Prettier
+npm run check      # typecheck, lint and format check together
 npm run build      # type-check and create a production build in dist/
 ```
 
@@ -78,7 +82,6 @@ Line endings are normalized by `.gitattributes`. Text files are stored with LF, 
 | Item | Roadmap task |
 |---|---|
 | Backend dependencies declared in `apps/backend/pyproject.toml` and installed with pip | Phase 01.3 |
-| Tailwind CSS, routing (React Router 8), TypeScript configuration and frontend structure | Remaining Phase 01.2 tasks |
 | Database configuration and migrations | Phase 01.4 |
 | Docker Compose development environment and `.env.example` | Phase 01.5 |
 
@@ -282,12 +285,18 @@ General:
 - Remove unused imports and dead code.
 - Never log passwords, session tokens, API keys or other secrets.
 
+Frontend (configured):
+
+- Oxlint (`apps/frontend/.oxlintrc.json`) with React, React Hooks, jsx-a11y, TypeScript and type-aware rules. Run `npm run lint`.
+- Prettier (`apps/frontend/.prettierrc.json`) with Tailwind CSS class sorting. Run `npm run format`, or `npm run format:check` to check without changing files.
+- Use design tokens from `src/index.css` for colours, radii and widths. Tailwind's default colour palette is disabled, so do not add arbitrary colour values; add a token instead.
+- Run `npm run check` before opening a pull request.
+
 ### Planned
 
 | Item | Roadmap task |
 |---|---|
 | Python linting, formatting and type-checking tools and configuration | Phase 01.6 (tools not yet selected) |
-| Frontend linting and formatting | Phase 01.2 |
 | Import-boundary contracts (import-linter) | Phase 01.6 |
 
 When these tools are configured, their configuration in the repository becomes the source of truth and CI will enforce it.
