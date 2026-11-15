@@ -60,6 +60,36 @@ source .venv/bin/activate
 
 The `.venv/` directory is gitignored.
 
+Backend (Python 3.11, FastAPI), with the virtual environment activated:
+
+```bash
+pip install -e "apps/backend[dev]"   # install the backend and its development dependencies
+cd apps/backend
+pytest                                # run the backend tests
+uvicorn app.main:create_app --factory --reload   # start the API locally
+```
+
+Configuration comes from `AEGIS_*` environment variables. For local development, copy `apps/backend/.env.example` to `apps/backend/.env`. Never commit `.env` files. Without configuration the backend runs as `production` with debug mode and API documentation off. With `AEGIS_ENVIRONMENT=development`, Swagger UI is available at `http://127.0.0.1:8000/api/docs`.
+
+Database (PostgreSQL), from `apps/backend` with the virtual environment activated:
+
+```bash
+alembic upgrade head                                    # apply migrations to the configured database
+alembic revision --autogenerate -m "describe change"    # generate a migration from model changes
+alembic check                                           # verify models and migrations match
+```
+
+- Set the `AEGIS_DATABASE_*` variables (see `.env.example`); `alembic.ini` never contains connection details.
+- Database tests create their own throwaway PostgreSQL cluster and never use your databases. They need the PostgreSQL server binaries (`initdb`, `pg_ctl`) on `PATH`, in the standard Windows location, or in `AEGIS_TEST_POSTGRES_BIN`; otherwise they are skipped.
+- See `apps/backend/migrations/README.md` for migration rules.
+
+Backend conventions:
+
+- Raise a subclass of `app.core.errors.AppError` for expected errors; never return exception details to clients.
+- Extend `app.schemas.base.RequestModel` for request bodies.
+- Use `app.database.session.get_db_session` for database access in endpoints; build SQL only with the ORM or bound parameters.
+- Never log passwords, tokens, secrets, session identifiers, query strings or request bodies.
+
 Frontend (React, TypeScript and Vite 8, managed with npm):
 
 ```bash
@@ -81,8 +111,6 @@ Line endings are normalized by `.gitattributes`. Text files are stored with LF, 
 
 | Item | Roadmap task |
 |---|---|
-| Backend dependencies declared in `apps/backend/pyproject.toml` and installed with pip | Phase 01.3 |
-| Database configuration and migrations | Phase 01.4 |
 | Docker Compose development environment and `.env.example` | Phase 01.5 |
 
 There is no dependency manifest yet. Do not submit code that relies on packages that are not declared in the repository.
@@ -217,7 +245,7 @@ Every pull request must:
    - Known limitations.
 4. Include tests for new behaviour, once the relevant test framework exists (section 7).
 5. Update documentation affected by the change.
-6. Include an Alembic migration for every database schema change, once migrations exist (Phase 01.4).
+6. Include an Alembic migration for every database schema change, and review generated migrations before committing them.
 7. Update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) when adding, removing or upgrading a dependency, and explain why the dependency is needed. New dependencies need maintainer approval.
 8. Contain no secrets, credentials, private keys, `.env` files or local tool configuration.
 9. Not claim that functionality works without having run it.

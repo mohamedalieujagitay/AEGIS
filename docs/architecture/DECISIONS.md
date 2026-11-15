@@ -46,6 +46,12 @@ This register records approved product and architecture decisions. Changing one 
 | D-036 | Form control border token meeting WCAG non-text contrast | 2026-11-15 | Approved |
 | D-037 | Workflow-based navigation with a module mapping (PRD §5.2) | 2026-11-15 | Approved |
 | D-038 | Dashboard metrics aligned with the approved design (PRD §5.3) | 2026-11-15 | Approved |
+| D-039 | Phase 1.3 split into two bundles | 2026-11-15 | Approved |
+| D-040 | Backend packaging, application factory and configuration | 2026-11-15 | Approved |
+| D-041 | Backend test client and FastAPI's OpenTelemetry dependency | 2026-11-15 | Approved; Uvicorn and httpx2 approved |
+| D-042 | Backend errors, logging, request validation and API documentation | 2026-11-15 | Approved |
+| D-043 | Database foundation: configuration, engine, sessions, ORM base and migrations | 2026-11-15 | Approved; psycopg licence reviewed for Windows, Linux review pending (task 1.5) |
+| D-044 | Database tests use a disposable PostgreSQL cluster | 2026-11-15 | Approved |
 
 ---
 
@@ -336,3 +342,111 @@ PRD §5.3 was updated to the design's metrics:
 - **Assessments** and the **findings trend** are added.
 
 All statistics must still come from real application data, with empty states until data exists.
+
+## D-039 — Phase 1.3 bundles
+
+Roadmap task 1.3 (Backend Foundation) is implemented in two bundles, in roadmap order:
+
+- **Bundle 1:** initialize FastAPI on Python 3.11 (pip, venv and `pyproject.toml`); establish the modular application structure; configure API routing; implement configuration management.
+- **Bundle 2:** centralized exception handling; logging; request validation; API documentation.
+
+Out of scope for Phase 1.3: health-check endpoints (task 1.5), database and Alembic (task 1.4), full Pytest configuration and Python lint and type-check tooling (task 1.6).
+
+## D-040 — Backend packaging, application factory and configuration
+
+- **Packaging:** `apps/backend/pyproject.toml` with the setuptools build backend; installed with `pip install -e "apps/backend[dev]"` into the repository `.venv` (Python 3.11). The version has a single source, `app.__version__`. Dependencies use compatible version ranges; a lock-file tool is still to be chosen (task 1.6).
+- **Structure:** the `app` package follows SYSTEM_ARCHITECTURE §4.1. Only the packages needed now exist (`app.api`, `app.api.v1`, `app.core`); the others are created by the tasks that need them, so there are no empty placeholder packages.
+- **Application factory:** `app.main.create_app(settings)` builds the application, so tests can pass explicit settings. Run with `uvicorn app.main:create_app --factory`.
+- **Routing:** `app.api.router.build_api_router()` mounts every router registered in `app.api.v1.ROUTERS` under `/api/v1`. There are no unversioned routes. The previous placeholder `main.py`, whose `/` route always reported "operational" without checking anything, was removed.
+- **Configuration:** `app.core.config.Settings` (pydantic-settings) reads `AEGIS_*` environment variables and, for local development, an optional `.env` file; environment variables take precedence. Settings are immutable and validated at startup, so invalid configuration stops the application instead of running with surprises. Secure defaults: `production` environment and debug off; debug is rejected in production. Secrets are never given defaults.
+- **API documentation** (`/docs`, `/redoc`, `/openapi.json`) is disabled until Bundle 2 configures it.
+
+## D-041 — Backend test client and FastAPI's OpenTelemetry dependency
+
+- **httpx2** replaces httpx as the development dependency behind FastAPI's TestClient. Starlette 1.10 deprecates httpx for its TestClient and imports httpx2 (BSD-3-Clause, same author, Pydantic organisation) when available.
+- **opentelemetry-api** is installed because FastAPI 0.163 requires it. It is the API layer only and is inert without an SDK and exporter, which AEGIS does not install, so no telemetry is collected or sent (PRD §4.6). Adding an OpenTelemetry SDK or exporter in future requires a decision and must stay disabled by default.
+
+## D-042 — Backend errors, logging, request validation and API documentation
+
+Phase 1.3 Bundle 2. No new dependencies; everything uses FastAPI, Starlette, Pydantic and the Python standard library.
+
+**Centralized exception handling** (`app/core/errors.py`)
+
+- Every error response has one shape, `ErrorResponse`: `{"error": {"code", "message", "request_id", "details"?}}`. The request ID is also returned in the `X-Request-ID` header.
+- Expected errors subclass `AppError` with a status code, a stable code and a message that is safe to show. Framework errors (404, 405 and others) use the standard reason phrase, never the exception detail.
+- Unexpected exceptions return a generic 500 `internal_error` and are logged server-side with their traceback and request ID. Exception messages, tracebacks and submitted values are never returned.
+- In debug mode Starlette returns its own traceback page for unexpected errors instead of calling the handler. Debug mode is rejected in production (D-040), so this cannot happen there.
+
+**Structured logging** (`app/core/logging.py`, `app/core/request_context.py`)
+
+- Standard-library logging to standard output, as one JSON object per line (default) or readable text (`AEGIS_LOG_FORMAT=text`). Each record has timestamp (UTC), level, logger, service, message, optional event type and request ID (SYSTEM_ARCHITECTURE §13.1). Level is set by `AEGIS_LOG_LEVEL` (default INFO).
+- Every request gets an ID. A client-supplied `X-Request-ID` is reused only if it is 8–64 characters from `[A-Za-z0-9._-]`; otherwise a new one is generated, so the header cannot be used to inject content into logs.
+- Each request is logged once (`http.request`): method, path without query string, status and duration; INFO below 500, ERROR from 500. Query strings and bodies are never logged, because they can carry secrets.
+- Uvicorn's own logs use the same handler. Its access log is disabled because it includes query strings. HTTP-client library loggers (httpx, httpcore and their successors) are raised to WARNING because they log full URLs.
+- Safety net: structured fields whose names look sensitive (password, secret, token, authorization, cookie, session, API key, credential, private key) are written as `[REDACTED]`. Log messages themselves must never contain such values.
+
+**Request validation** (`app/schemas/base.py`, `app/core/request_limits.py`)
+
+- Request bodies extend `RequestModel`: unknown fields are rejected and surrounding whitespace is stripped.
+- Validation errors return 422 `validation_error` with one entry per problem: location, message and type only. The submitted input and validation context are dropped, so values such as passwords are never echoed.
+- Request bodies larger than `AEGIS_MAX_REQUEST_BODY_BYTES` (default 1 MiB) are rejected with 413 `request_too_large`, whether the size is declared in `Content-Length` or only found while streaming.
+
+**API documentation** (`app/main.py`)
+
+- Swagger UI at `/api/docs` and the OpenAPI schema at `/api/openapi.json`; ReDoc is not served. Disabled in production by default; enabled in development and test. `AEGIS_API_DOCS_ENABLED` overrides the default in either direction.
+- The schema documents the `ErrorResponse` format for 422 and 500 on every version 1 operation, and states the Apache-2.0 licence. "Try it out" is off by default and authorization is not persisted.
+- Open item: FastAPI's Swagger UI page loads its JavaScript and CSS from `cdn.jsdelivr.net` and its favicon from `fastapi.tiangolo.com`, so opening the docs page makes the viewer's browser contact those services. The docs are off in production by default. Serving these files from the deployment would need the `swagger-ui-dist` assets (Apache-2.0) and a decision.
+
+**Deployment hardening: server header**
+
+Uvicorn adds a `server: uvicorn` response header at the protocol level, outside the application, so the application cannot reliably remove it. Deployments must start Uvicorn with `--no-server-header` (verified: the header is then absent). This belongs to the deployment configuration in roadmap task 1.5; no deployment files are added in Phase 1.3.
+
+## D-043 — Database foundation
+
+Roadmap task 1.4, implemented as one bundle. No business models are created.
+
+**Configuration (task: Configure PostgreSQL).** The connection is configured with individual `AEGIS_DATABASE_*` settings (host, port, name, user, password, SSL mode, connect timeout and pool sizes), not a single URL string:
+
+- The password is a `SecretStr`: hidden in `repr`, logs and settings dumps. It has no default and is required in production.
+- `app.database.config.build_database_url` builds the URL with SQLAlchemy's `URL.create`, which escapes every component (no string formatting). Printing the URL hides the password.
+- `sslmode` defaults to `prefer`; `verify-full` is documented for databases on untrusted networks. Each connection sets `application_name=aegis-api` and `connect_timeout` (default 5 s).
+- An unset `AEGIS_DATABASE_HOST` means no database is configured. The application still starts; database-backed requests return 503.
+
+**SQLAlchemy 2.x with psycopg 3 (task: Integrate SQLAlchemy 2.x).** `psycopg[binary]` is used because it bundles libpq, so no PostgreSQL client installation is needed. SQLAlchemy 2.1 no longer needs `greenlet` for synchronous use.
+
+Licence review of psycopg 3.3.9 (details in THIRD_PARTY_NOTICES.md, "psycopg Licence Review"):
+
+- **Windows wheel: completed.** `psycopg-binary` 3.3.9 for CPython 3.11 on 64-bit Windows bundles libpq 18.4 (PostgreSQL License) and OpenSSL 3.6.5 (Apache-2.0), and nothing else. Using psycopg as an unmodified, separately installed dependency is acceptable for the Apache-2.0 project. The obligations listed there apply if AEGIS ever distributes these binaries itself.
+- **Linux wheel: pending.** The Linux (manylinux) wheels used in containers are built separately and may bundle additional libraries. They must be reviewed in task 1.5, before container images are built or distributed.
+
+**Connection management (task: Establish database connection management).**
+
+- `app/database/engine.py`: one engine per application with a `QueuePool` (size 5, overflow 10, timeout 30 s, recycle 1800 s, all configurable), `pool_pre_ping` to replace connections broken by a database restart, `hide_parameters` so bound values never appear in errors or logs, and SQL logging (`echo`) off.
+- `app/database/session.py`: a `Database` object, created by `create_app`, builds the engine lazily on first use, so importing or starting the application never opens a connection. The application lifespan disposes of the pool on shutdown. `get_db_session` gives each request one session whose transaction commits when the handler returns and rolls back if it raises. Sessions use `autoflush=False` and `expire_on_commit=False`.
+- `app/database/errors.py`: connection failures, timeouts and pool exhaustion (`OperationalError`, `InterfaceError`, `TimeoutError`) return 503 `database_unavailable` in the standard error format. Hosts, users, SQL and driver messages are never returned, and only the exception type is logged.
+- The engine-creation log entry records host, port, database name and SSL mode, never the user or password.
+
+**ORM foundation.** `app/database/base.py` defines `Base` (SQLAlchemy 2.x `DeclarativeBase`, typed `Mapped[...]` mappings) with:
+
+- a constraint naming convention (`pk_`, `uq_`, `ix_`, `fk_`, `ck_`), so migrations are deterministic;
+- `datetime` columns mapped to `timestamptz` and `uuid.UUID` to PostgreSQL `uuid`;
+- `UUIDPrimaryKeyMixin` (random version 4 UUIDs, not guessable or enumerable) and `TimestampMixin` (`created_at` and `updated_at`, set by the database).
+
+`app/models/__init__.py` is the model registry imported by Alembic; it is empty until Phase 02.
+
+**Alembic (tasks: Configure Alembic; Create initial migration structure).**
+
+- `apps/backend/alembic.ini` contains no database URL. `migrations/env.py` builds the connection from the same settings as the application and compares against `Base.metadata`, with type and server-default comparison enabled. A NullPool engine is used for migration runs. Offline SQL generation (`--sql`) works without a connection.
+- Migration files are named `YYYYMMDD_<revision>_<slug>.py` (UTC dates) and use a typed template.
+- The initial migration (`ccf3950ff766`, "initial migration structure") is an empty baseline that later migrations build on.
+
+## D-044 — Disposable PostgreSQL for database tests
+
+Database tests must never touch a developer's or production database. `tests/postgres_harness.py` creates a temporary PostgreSQL cluster with the local `initdb` and `pg_ctl` binaries:
+
+- In a temporary directory, listening only on 127.0.0.1 on a free port, with trust authentication and durability disabled for speed.
+- Started once per test session and destroyed at the end. Each database test gets its own freshly created database, dropped afterwards.
+- Binaries come from `AEGIS_TEST_POSTGRES_BIN`, `PATH`, or the standard Windows installation directory. If none are found, database tests are skipped with a reason; all other tests still run.
+- Tools are run with fixed argument lists, never through a shell.
+
+No test dependency was added (such as testcontainers or pytest-postgresql). Docker-based test databases and CI provisioning belong to tasks 1.5 and 1.6.

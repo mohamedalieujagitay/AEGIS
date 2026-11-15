@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis-backend"
+description = "AEGIS backend API"
+readme = { text = "AEGIS backend API. See the repository README and docs/ for details.", content-type = "text/plain" }
+license = "Apache-2.0"
+requires-python = ">=3.11,<3.12"
+dynamic = ["version"]
+dependencies = [
+  "fastapi>=0.163.1,<0.164",
+  "pydantic-settings>=2.16.3,<3",
+  "uvicorn>=0.54.0,<0.55",
+  "sqlalchemy>=2.1.8,<2.2",
+  # Binary distribution bundles libpq, so no system PostgreSQL client is needed.
+  "psycopg[binary]>=3.3.9,<3.4",
+  "alembic>=1.20.1,<1.21",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.2.0,<10",
+  # Required by the FastAPI/Starlette TestClient (Starlette 1.10 deprecates httpx).
+  "httpx2>=2.16.0,<3",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "app.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+# Minimal test discovery settings. Full Pytest configuration is roadmap task 1.6.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

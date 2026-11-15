@@ -146,7 +146,7 @@ The backend is the central application authority.
 
 **ORM:** SQLAlchemy 2.x (synchronous API)
 
-**Driver:** psycopg 3
+**Driver:** psycopg 3 (`psycopg[binary]`)
 
 The synchronous API is used deliberately: it is simpler to test and reason about, and FastAPI runs synchronous endpoints in a thread pool, which is sufficient for a self-hosted platform.
 
@@ -304,9 +304,10 @@ Backend structure:
 apps/backend/
 │
 ├── app/
-│   ├── main.py
+│   ├── main.py            # create_app() application factory
 │   │
 │   ├── api/
+│   │   ├── router.py          # assembles /api/v1 from registered routers
 │   │   ├── v1/                # public API
 │   │   │   ├── auth.py
 │   │   │   ├── users.py
@@ -320,14 +321,20 @@ apps/backend/
 │   │   └── internal/          # ingestion listener only (§6.5)
 │   │
 │   ├── core/
-│   │   ├── config.py
+│   │   ├── config.py      # Settings: AEGIS_* environment variables
+│   │   ├── errors.py      # AppError and the standard error handlers
+│   │   ├── request_context.py  # request IDs and request logging
+│   │   ├── request_limits.py   # request body size limit
 │   │   ├── security.py
 │   │   ├── permissions.py
 │   │   └── logging.py
 │   │
 │   ├── database/
-│   │   ├── session.py
-│   │   └── base.py
+│   │   ├── config.py      # connection URL from AEGIS_DATABASE_* settings
+│   │   ├── engine.py      # engine and connection pool
+│   │   ├── session.py     # Database lifecycle, per-request session
+│   │   ├── base.py        # declarative Base, naming convention, mixins
+│   │   └── errors.py      # 503 for unavailable database
 │   │
 │   ├── models/
 │   ├── schemas/
@@ -497,6 +504,11 @@ Scope entries belong to the workspace, not to assets. Assets are inventory; scop
 
 ## 5.3 Database Rules
 
+- Models use SQLAlchemy 2.x typed mappings on `app.database.base.Base`, and are registered in `app/models/__init__.py`.
+- Primary keys are random UUIDs (`UUIDPrimaryKeyMixin`); timestamps are `timestamptz` in UTC (`TimestampMixin`).
+- Constraint and index names follow the naming convention in `app/database/base.py`.
+- SQL is built with the ORM, Core expressions or bound parameters; never by formatting values into SQL strings.
+- Connections are configured with `AEGIS_DATABASE_*` settings; connection strings and credentials are never logged (DECISIONS.md D-043).
 - Every workspace-owned resource must have a workspace association.
 - Workspace isolation must be enforced in backend queries.
 - Database migrations must be version-controlled.
@@ -980,6 +992,8 @@ On Docker Desktop (Windows and macOS), containers reach private lab networks thr
 Configuration must use environment variables.
 
 Sensitive credentials must not be committed to Git.
+
+Uvicorn must be started with `--no-server-header` in deployments, so responses do not disclose the server software (DECISIONS.md D-042).
 
 Secrets include the database password, Valkey ACL passwords, the Ed25519 signing key, the session secret and third-party provider API keys. They are supplied through environment variables or Docker secrets. The assessment worker receives only the secrets it needs: its Valkey credentials and the signing public key.
 
