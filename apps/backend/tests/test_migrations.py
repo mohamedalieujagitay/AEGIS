@@ -2,6 +2,7 @@
 
 import re
 import shutil
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -13,6 +14,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, DateTime, MetaData, String, inspect, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.config import Settings
@@ -63,7 +65,8 @@ def test_migration_history_is_linear() -> None:
     assert len(scripts.get_bases()) == 1
     for revision in scripts.walk_revisions():
         source = Path(revision.path).read_text(encoding="utf-8")
-        assert "def upgrade()" in source and "def downgrade()" in source
+        assert "def upgrade()" in source
+        assert "def downgrade()" in source
 
 
 def test_upgrade_and_downgrade(database_settings: Settings) -> None:
@@ -141,10 +144,12 @@ def test_a_migration_can_be_generated_and_applied(
             message="add demo items",
             autogenerate=True,
         )
-    assert revision is not None and not isinstance(revision, list)
+    assert revision is not None
+    assert not isinstance(revision, list)
     generated = Path(revision.path).read_text(encoding="utf-8")
-    assert "op.create_table('demo_items'" in generated or 'op.create_table("demo_items"' in generated
-    assert "pk_demo_items" in generated and "uq_demo_items_name" in generated
+    assert any(f"op.create_table({quote}demo_items{quote}" in generated for quote in ("'", '"'))
+    assert "pk_demo_items" in generated
+    assert "uq_demo_items_name" in generated
 
     with _connection(database_settings) as connection:
         command.upgrade(_config(connection, script_location, metadata), "head")
@@ -163,3 +168,126 @@ def test_a_migration_can_be_generated_and_applied(
 
     # The repository's migration directory was not modified.
     assert not any(MIGRATIONS_DIR.joinpath("versions").glob("*demo_items*"))
+
+
+# --- Migration metadata permissions (DECISIONS.md D-054, D-060) -------------
+
+
+@contextmanager
+def _deployment_roles(settings: Settings) -> Iterator[tuple[str, str]]:
+    """Owner and runtime roles set up like infrastructure/docker/postgres/initdb.
+
+    The runtime role gets data access to every table the owner creates
+    through default privileges, exactly as in a deployment. Both roles are
+    removed afterwards.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    owner, app_role = f"test_owner_{suffix}", f"test_app_{suffix}"
+    database = Database(settings)
+    try:
+        with database.engine.begin() as connection:
+            for role in (owner, app_role):
+                connection.execute(text(f'CREATE ROLE "{role}" LOGIN'))
+            connection.execute(text(f'ALTER SCHEMA public OWNER TO "{owner}"'))
+            connection.execute(text(f'GRANT USAGE ON SCHEMA public TO "{app_role}"'))
+            connection.execute(
+                text(
+                    f'ALTER DEFAULT PRIVILEGES FOR ROLE "{owner}" IN SCHEMA public '
+                    f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{app_role}"'
+                )
+            )
+        yield owner, app_role
+    finally:
+        with database.engine.begin() as connection:
+            connection.execute(text(f'ALTER SCHEMA public OWNER TO "{settings.database_user}"'))
+            for role in (owner, app_role):
+                connection.execute(
+                    text(f'REASSIGN OWNED BY "{role}" TO "{settings.database_user}"')
+                )
+                connection.execute(text(f'DROP OWNED BY "{role}"'))
+                connection.execute(text(f'DROP ROLE "{role}"'))
+        database.dispose()
+
+
+def _as_role(settings: Settings, role: str, sql: str) -> None:
+    database = Database(settings.model_copy(update={"database_user": role}))
+    try:
+        with database.engine.begin() as connection:
+            connection.execute(text(sql))
+    finally:
+        database.dispose()
+
+
+def test_runtime_role_cannot_access_migration_metadata(database_settings: Settings) -> None:
+    with _deployment_roles(database_settings) as (owner, app_role):
+        owner_settings = database_settings.model_copy(update={"database_user": owner})
+        with _connection(owner_settings) as connection:
+            command.upgrade(_config(connection), "head")
+
+        for sql in (
+            "SELECT version_num FROM alembic_version",
+            "UPDATE alembic_version SET version_num = 'tampered'",
+            "DELETE FROM alembic_version",
+            "INSERT INTO alembic_version (version_num) VALUES ('tampered')",
+            "TRUNCATE alembic_version",
+            "DROP TABLE alembic_version",
+        ):
+            with pytest.raises(ProgrammingError) as excinfo:
+                _as_role(database_settings, app_role, sql)
+            assert "permission denied" in str(excinfo.value.orig) or "must be owner" in str(
+                excinfo.value.orig
+            )
+
+        # The owner can still run migrations: an upgrade and a new table.
+        with _connection(owner_settings) as connection:
+            command.upgrade(_config(connection), "head")
+            head = ScriptDirectory.from_config(_config()).get_current_head()
+            current = connection.execute(text("SELECT version_num FROM alembic_version"))
+            assert current.scalar_one() == head
+            connection.execute(text("CREATE TABLE app_records (id int PRIMARY KEY, note text)"))
+
+
+def test_runtime_role_keeps_data_access_to_application_tables(
+    database_settings: Settings,
+) -> None:
+    with _deployment_roles(database_settings) as (owner, app_role):
+        owner_settings = database_settings.model_copy(update={"database_user": owner})
+        with _connection(owner_settings) as connection:
+            command.upgrade(_config(connection), "head")
+            # Stands in for a table created by a future migration.
+            connection.execute(text("CREATE TABLE app_records (id int PRIMARY KEY, note text)"))
+
+        for sql in (
+            "INSERT INTO app_records (id, note) VALUES (1, 'a')",
+            "UPDATE app_records SET note = 'b' WHERE id = 1",
+            "SELECT note FROM app_records",
+            "DELETE FROM app_records WHERE id = 1",
+        ):
+            _as_role(database_settings, app_role, sql)
+
+        for sql in ("ALTER TABLE app_records ADD COLUMN extra int", "DROP TABLE app_records"):
+            with pytest.raises(ProgrammingError):
+                _as_role(database_settings, app_role, sql)
+
+
+def test_restriction_is_idempotent_and_leaves_owner_access(database_settings: Settings) -> None:
+    with _connection(database_settings) as connection:
+        command.upgrade(_config(connection), "head")
+        command.upgrade(_config(connection), "head")
+        acl = connection.execute(
+            text("SELECT relacl::text FROM pg_class WHERE oid = 'alembic_version'::regclass")
+        ).scalar_one_or_none()
+    # Only the owner's own privileges remain (or none were ever granted).
+    assert acl is None or all(
+        entry.startswith(f"{database_settings.database_user}=")
+        for entry in acl.strip("{}").split(",")
+    )
+
+
+def test_offline_sql_includes_the_restriction(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("AEGIS_ENVIRONMENT", "test")
+    monkeypatch.setenv("AEGIS_DATABASE_HOST", "unreachable.invalid")
+    command.upgrade(_config(), "head", sql=True)
+    assert "REVOKE ALL ON TABLE %s FROM PUBLIC" in capsys.readouterr().out

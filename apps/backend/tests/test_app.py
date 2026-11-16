@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app import __version__
 from app.api import v1
 from app.api.router import API_V1_PREFIX, build_api_router
+from app.api.v1 import health
 from app.core.config import Environment, Settings
 from app.main import create_app
 
@@ -34,8 +35,9 @@ def test_no_unversioned_root_endpoint() -> None:
     assert client.get("/").status_code == 404
 
 
-def test_version_1_router_registry_starts_empty() -> None:
-    assert v1.ROUTERS == []
+def test_version_1_router_registry_contains_only_implemented_features() -> None:
+    # Health checks (roadmap task 1.5) are the only feature implemented so far.
+    assert [health.router] == v1.ROUTERS
 
 
 def test_feature_routers_are_mounted_under_the_versioned_prefix() -> None:

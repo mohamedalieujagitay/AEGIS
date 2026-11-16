@@ -7,5 +7,7 @@ first are the health checks (task 1.5) and authentication (Phase 02).
 
 from fastapi import APIRouter
 
-ROUTERS: list[APIRouter] = []
+from app.api.v1 import health
+
+ROUTERS: list[APIRouter] = [health.router]
 """Feature routers included in the version 1 API, in registration order."""

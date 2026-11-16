@@ -1,0 +1,42 @@
+# Checks that pull request titles follow Conventional Commits (CONTRIBUTING §5),
+# because squash merges use the title as the commit message.
+#
+# Separate from ci.yml so that editing a title re-runs only this check.
+# The title is untrusted input: it is passed through an environment variable
+# and only compared with a regular expression, never expanded into a command.
+
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventional-title:
+    name: Conventional Commits title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern='^(feat|fix|docs|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: [^A-Z[:space:]].*[^.[:space:]]$'
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            echo "::error title=Invalid pull request title::Use '<type>(<optional scope>): <lowercase summary>' with no trailing period. Types: feat, fix, docs, refactor, perf, test, build, ci, chore, revert. See CONTRIBUTING.md section 5."
+            exit 1
+          fi
+          if (( ${#PR_TITLE} > 72 )); then
+            echo "::error title=Pull request title too long::The title has ${#PR_TITLE} characters; the limit is 72."
+            exit 1
+          fi
+          echo "Title follows Conventional Commits."

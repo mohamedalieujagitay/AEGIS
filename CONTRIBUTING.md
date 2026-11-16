@@ -14,6 +14,7 @@ Before contributing, please read:
 - [System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md): how it is built.
 - [Development Roadmap](docs/development/DEVELOPMENT_ROADMAP.md): what is being built, and when.
 - [Decision Register](docs/architecture/DECISIONS.md): approved decisions that contributions must respect.
+- [Security Risk Register](docs/security/SECURITY_RISKS.md): known, accepted security limitations. Do not describe AEGIS as providing protections listed there as missing.
 
 ---
 
@@ -35,7 +36,8 @@ Prerequisites:
 
 - Git.
 - Python 3.11.
-- Node.js 22.22.0 or later, with npm (bundled with Node.js). The minimum is declared in `apps/frontend/package.json`.
+- Node.js 22.22.2 or later, with npm (bundled with Node.js). The minimum is declared in `apps/frontend/package.json`; the development and CI baseline, 22.23.5, is in `apps/frontend/.nvmrc`.
+- PostgreSQL server binaries (`initdb`, `pg_ctl`), only to run the database tests (see below). No PostgreSQL server needs to be running.
 
 Set up the repository:
 
@@ -63,11 +65,34 @@ The `.venv/` directory is gitignored.
 Backend (Python 3.11, FastAPI), with the virtual environment activated:
 
 ```bash
-pip install -e "apps/backend[dev]"   # install the backend and its development dependencies
 cd apps/backend
-pytest                                # run the backend tests
-uvicorn app.main:create_app --factory --reload   # start the API locally
+pip install --require-hashes -r requirements-dev.lock   # exact, hash-checked dependencies
+pip install --no-deps -e .                               # the backend itself, editable
+pytest                                                   # run the backend tests
+uvicorn app.main:create_app --factory --reload           # start the API locally
 ```
+
+Dependencies are declared with version ranges in `apps/backend/pyproject.toml` and pinned, with SHA-256 hashes, in **two** lock files (DECISIONS.md D-046, D-051):
+
+| Lock file | Contents | Used by |
+|---|---|---|
+| `apps/backend/requirements-dev.lock` | Runtime dependencies plus the `dev` extra (pytest, Ruff, mypy, import-linter) | Your virtual environment and the CI backend job |
+| `apps/backend/requirements.lock` | Runtime dependencies only | The backend container image (Linux); no test or lint tools are installed in the image |
+
+**Whenever you change a dependency declaration in `pyproject.toml`, regenerate both locks and commit them together with `pyproject.toml`.** Use Python 3.11:
+
+```bash
+cd apps/backend
+pip install "pip-tools>=7.7.0,<7.8"   # the version declared in the `lock` extra; needed only for this step
+python -m piptools compile --extra dev --generate-hashes --strip-extras --allow-unsafe --output-file requirements-dev.lock pyproject.toml
+python -m piptools compile --generate-hashes --strip-extras --allow-unsafe --output-file requirements.lock pyproject.toml
+```
+
+Platform notes:
+
+- Both locks are generated on Windows. pip-tools drops platform markers, so packages that are only required on Windows are pinned unconditionally and are also installed on Linux, where they are harmless: `colorama` (required by pytest on Windows; `requirements-dev.lock` only) and `tzdata` (required on Windows by psycopg, kombu and tzlocal; both locks). Generating the locks on Linux would omit them and break Windows installs, so regenerate on Windows, or check afterwards that `colorama` is still in the development lock and `tzdata` in both.
+- Hashes are recorded for every published wheel and source distribution of each pinned version, so the same lock installs on Windows, Linux x86-64 and Linux ARM64. The container image installs with `--only-binary=:all:`, so every runtime dependency must publish Linux wheels.
+- Regeneration is reproducible: running the commands again without changing `pyproject.toml` produces identical files.
 
 Configuration comes from `AEGIS_*` environment variables. For local development, copy `apps/backend/.env.example` to `apps/backend/.env`. Never commit `.env` files. Without configuration the backend runs as `production` with debug mode and API documentation off. With `AEGIS_ENVIRONMENT=development`, Swagger UI is available at `http://127.0.0.1:8000/api/docs`.
 
@@ -80,7 +105,7 @@ alembic check                                           # verify models and migr
 ```
 
 - Set the `AEGIS_DATABASE_*` variables (see `.env.example`); `alembic.ini` never contains connection details.
-- Database tests create their own throwaway PostgreSQL cluster and never use your databases. They need the PostgreSQL server binaries (`initdb`, `pg_ctl`) on `PATH`, in the standard Windows location, or in `AEGIS_TEST_POSTGRES_BIN`; otherwise they are skipped.
+- Database tests create their own throwaway PostgreSQL cluster and never use your databases. They need the PostgreSQL server binaries (`initdb`, `pg_ctl`) on `PATH`, in the standard Windows location, or in `AEGIS_TEST_POSTGRES_BIN`; otherwise they are skipped. Set `AEGIS_TEST_REQUIRE_POSTGRES=1` to make a missing installation fail the run instead, as CI does.
 - See `apps/backend/migrations/README.md` for migration rules.
 
 Backend conventions:
@@ -100,6 +125,8 @@ npm run typecheck  # run strict TypeScript checks
 npm run lint       # lint with Oxlint, including type-aware rules
 npm run format     # format with Prettier
 npm run check      # typecheck, lint and format check together
+npm test           # run the tests once (Vitest)
+npm run test:watch # run the tests in watch mode
 npm run build      # type-check and create a production build in dist/
 ```
 
@@ -107,13 +134,46 @@ Use npm only. Do not commit lock files from other package managers. Commit `pack
 
 Line endings are normalized by `.gitattributes`. Text files are stored with LF, and Windows batch files keep CRLF. You do not need to change your editor settings, but do not commit line-ending-only changes.
 
-### Planned
+### Docker development environment
 
-| Item | Roadmap task |
-|---|---|
-| Docker Compose development environment and `.env.example` | Phase 01.5 |
+Prerequisite: Docker with Docker Compose v2.24 or later (Docker Desktop on Windows and macOS).
 
-There is no dependency manifest yet. Do not submit code that relies on packages that are not declared in the repository.
+The whole stack (frontend, API, PostgreSQL, Valkey and both worker roles) runs as the Compose project `aegis`:
+
+```bash
+python infrastructure/scripts/init_dev_secrets.py                        # once: create secrets/ (gitignored)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build   # start everything
+```
+
+- Application: http://127.0.0.1:8080. API documentation: http://127.0.0.1:8000/api/docs. Health: http://127.0.0.1:8080/api/v1/health/ready.
+- The development override mounts `apps/backend/app` read-only and reloads the API on changes. Restart the workers to pick up worker changes: `docker compose -f docker-compose.yml -f docker-compose.dev.yml restart worker-internal worker-assessment`.
+- For frontend work, run `npm run dev` in `apps/frontend` while the stack runs: Vite proxies `/api` to the API on port 8000.
+- Migrations run automatically before the API starts (`alembic upgrade head` only). Nothing is ever downgraded or dropped. To start again from an empty database, stop the stack and remove its volumes yourself: `docker compose -f docker-compose.yml -f docker-compose.dev.yml down --volumes` deletes all local AEGIS data.
+- PostgreSQL and Valkey have no host ports. Inspect them through their containers, for example `docker compose exec postgres psql --username=postgres --dbname=aegis`.
+- Optional settings (ports, subnets, log level, worker concurrency) are in `.env.example`; copy it to `.env` in the repository root to change them. Change `AEGIS_SUBNET_PREFIX` if the default `10.213.x.0/24` networks overlap with networks you use.
+
+Secrets:
+
+- `init_dev_secrets.py` never overwrites an existing file. Never commit `secrets/`, and never put passwords in `.env` or `docker-compose.yml`.
+- If the script reports that `secrets/valkey_users.acl` is out of date or does not match the password files (for example after an update adds a new Valkey user, such as `healthcheck`), delete that file, run the script again, and recreate Valkey: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate valkey`. The passwords are kept.
+- Docker mounts each secret file by reference: after replacing a secret file, recreate the containers that use it.
+
+Container smoke test (also run in CI):
+
+```bash
+python infrastructure/scripts/smoke_test.py --build
+```
+
+It runs the production-like stack as a separate project, `aegis-smoke`, with temporary secrets, its own networks, port 18080 and its own volumes, checks more than 100 conditions, and then removes only the `aegis-smoke` resources. Your `aegis` stack and data are not touched.
+
+Container rules:
+
+- Images are built locally only. **Never publish, push or distribute AEGIS images** until the distribution-compliance review is complete (DECISIONS.md D-059).
+- Keep every service non-root, with a read-only root filesystem, no capabilities, `no-new-privileges` and resource limits. Never mount the Docker socket and never add privileged mode.
+- Pin base images by digest. Add files to an image through the Dockerfile's `.dockerignore` allowlist only.
+- The assessment worker must never receive database credentials or join the `data` network.
+
+Do not submit code that relies on packages that are not declared in `apps/backend/pyproject.toml` or `apps/frontend/package.json`.
 
 ---
 
@@ -123,6 +183,7 @@ There is no dependency manifest yet. Do not submit code that relies on packages 
 
 ```text
 AEGIS/
+├── .github/              # CI workflows, pull request and issue templates
 ├── apps/
 │   ├── backend/          # FastAPI application (foundation begins in Phase 01.3)
 │   └── frontend/         # React + TypeScript application built with Vite 8
@@ -133,9 +194,12 @@ AEGIS/
 │   ├── development/      # DEVELOPMENT_ROADMAP.md
 │   └── security/
 ├── infrastructure/
-│   ├── docker/
-│   └── scripts/
+│   ├── docker/           # Dockerfiles, nginx, Valkey and PostgreSQL configuration
+│   └── scripts/          # init_dev_secrets.py, smoke_test.py
 ├── tests/                # End-to-end tests (Playwright)
+├── .env.example          # optional Docker Compose settings
+├── docker-compose.yml    # secure, production-like base
+├── docker-compose.dev.yml  # development override
 ├── CONTRIBUTING.md
 ├── LICENSE
 ├── README.md
@@ -147,7 +211,7 @@ The planned internal structure of the backend and frontend is described in [SYST
 Architectural boundaries that contributions must respect:
 
 - API routes stay thin. Business logic belongs in services and modules.
-- Worker-side code (`app.workers.assessment`, `app.modules.*.engine`, `app.netguard`, `app.contracts`) must not import database code (SYSTEM_ARCHITECTURE §4.5). Automated enforcement is planned for Phase 01.6.
+- Worker-side code (`app.workers.assessment`, `app.modules.*.engine`, `app.netguard`, `app.contracts`) must not import database code, directly or indirectly (SYSTEM_ARCHITECTURE §4.5). An import-linter contract in `apps/backend/pyproject.toml` enforces this; run `lint-imports` from `apps/backend`.
 - There is no top-level `workers/` or `packages/` directory. Do not create one without an approved decision.
 
 ---
@@ -232,6 +296,8 @@ Commit message format is not automatically enforced at present. Reviewers check 
 
 ### Current requirements
 
+Use the pull request template, which GitHub fills in automatically. The title must follow Conventional Commits (section 5), because pull requests are squash-merged and the title becomes the commit message; CI checks it.
+
 Every pull request must:
 
 1. Address **one** feature, fix or documentation change.
@@ -243,24 +309,31 @@ Every pull request must:
    - Security implications, or an explicit statement that there are none.
    - The tests you ran and their results.
    - Known limitations.
-4. Include tests for new behaviour, once the relevant test framework exists (section 7).
+4. Include tests for new behaviour (section 7).
 5. Update documentation affected by the change.
 6. Include an Alembic migration for every database schema change, and review generated migrations before committing them.
-7. Update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) when adding, removing or upgrading a dependency, and explain why the dependency is needed. New dependencies need maintainer approval.
+7. Update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) when adding, removing or upgrading a dependency, and explain why the dependency is needed. Update `requirements-dev.lock` or `package-lock.json` in the same pull request. New dependencies need maintainer approval.
 8. Contain no secrets, credentials, private keys, `.env` files or local tool configuration.
 9. Not claim that functionality works without having run it.
 
 Pull requests that change authentication, authorization, scope enforcement, SSRF protection, worker isolation or result ingestion receive additional security review.
 
-### Planned
+### Continuous integration
 
-| Item | Roadmap task |
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`:
+
+| Job | Checks |
 |---|---|
-| Pull request and issue templates | Phase 01.6 |
-| GitHub Actions CI running linting, formatting checks, type checking, import-boundary contracts and tests on every pull request | Phase 01.6 |
-| Required passing CI checks before merge | After Phase 01.6 |
+| Backend (Python 3.11) | Hash-checked install and `pip check`, `ruff check`, `ruff format --check`, `mypy`, `lint-imports`, `pytest` (database tests included, against a disposable PostgreSQL 18 cluster) |
+| Frontend (Node.js) | `npm ci`, `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test`, `npm run build` |
+| Containers (build and smoke test) | Builds both images and runs `infrastructure/scripts/smoke_test.py`: health, API proxy, worker isolation, Valkey ACLs, database roles, container security and graceful shutdown. Images are never pushed. |
+| Conventional Commits title | The pull request title format (`.github/workflows/pr-title.yml`) |
 
-Until CI exists, run the relevant checks locally and state in the pull request description exactly what you ran.
+Run the same checks locally before opening a pull request, and state in the description what you ran. A pull request is merged only when all checks pass.
+
+Issues use forms for bug reports and feature requests. Security vulnerabilities are never reported in issues (section 9).
+
+Recommended repository settings (merge method, branch protection and Actions permissions) are listed in [DECISIONS.md D-049](docs/architecture/DECISIONS.md). Maintainers apply them manually.
 
 ---
 
@@ -268,7 +341,13 @@ Until CI exists, run the relevant checks locally and state in the pull request d
 
 ### Current
 
-No automated tests exist yet. They are introduced alongside the code they test.
+| Test type | Tool | Location | Run |
+|---|---|---|---|
+| Backend unit, integration, API, database, authorization and security tests | Pytest | `apps/backend/tests/` | `pytest` in `apps/backend` |
+| Frontend component, form and routing tests | Vitest, React Testing Library, user-event, jest-dom | `apps/frontend/src/**/*.test.ts(x)`, next to the code | `npm test` in `apps/frontend` |
+
+- Backend: tests that need PostgreSQL are marked `database` automatically. `pytest -m "not database"` runs only the fast tests. Warnings fail the run, so fix deprecations when they appear.
+- Frontend: test behaviour as users experience it. Query by role, label and accessible name, use `userEvent` for interaction, and render pages through the real route configuration with a memory router. Test files are type-checked and linted like application code.
 
 Rules that apply to all tests:
 
@@ -281,8 +360,6 @@ Rules that apply to all tests:
 
 | Test type | Tool | Location | Roadmap task |
 |---|---|---|---|
-| Backend unit, integration, API, authorization and security tests | Pytest | `apps/backend/tests/` | Configured in Phase 01.6 |
-| Frontend component and form tests | Vitest and React Testing Library | `apps/frontend/` | Configured in Phase 01.6 |
 | End-to-end workflow tests | Playwright | `tests/` | Introduced with the first complete user workflows |
 
 Security-sensitive features must include tests for the failure path as well. For example, scope enforcement must be tested with out-of-scope targets, DNS rebinding, redirects and denylisted addresses.
@@ -320,14 +397,19 @@ Frontend (configured):
 - Use design tokens from `src/index.css` for colours, radii and widths. Tailwind's default colour palette is disabled, so do not add arbitrary colour values; add a token instead.
 - Run `npm run check` before opening a pull request.
 
-### Planned
+Backend (configured in `apps/backend/pyproject.toml`), run from `apps/backend`:
 
-| Item | Roadmap task |
-|---|---|
-| Python linting, formatting and type-checking tools and configuration | Phase 01.6 (tools not yet selected) |
-| Import-boundary contracts (import-linter) | Phase 01.6 |
+```bash
+ruff check .            # lint (add --fix to apply safe fixes)
+ruff format .           # format; ruff format --check . only checks
+mypy                    # strict type checking of app, migrations and tests
+lint-imports            # import-boundary contracts (SYSTEM_ARCHITECTURE §4.5)
+```
 
-When these tools are configured, their configuration in the repository becomes the source of truth and CI will enforce it.
+- Line length is 100, matching the frontend.
+- Suppress a rule only on the affected line (`# noqa: <code>`), with a comment explaining why. Do not use `assert` in application code; it is removed when Python runs with `-O`.
+
+The configuration in the repository is the source of truth, and CI enforces it.
 
 ---
 

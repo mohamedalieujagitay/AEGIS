@@ -92,7 +92,7 @@ def test_docs_enabled_default_depends_on_environment(
 def test_settings_are_immutable() -> None:
     settings = Settings()
     with pytest.raises(ValidationError):
-        setattr(settings, "debug", True)
+        settings.debug = True
 
 
 def test_get_settings_is_cached() -> None:

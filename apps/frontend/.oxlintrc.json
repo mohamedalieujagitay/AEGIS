@@ -22,9 +22,12 @@
     "typescript/no-floating-promises": "error",
     "typescript/no-misused-promises": "error",
     "typescript/await-thenable": "error",
-    "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
+    "import/no-unassigned-import": [
+      "error",
+      { "allow": ["**/*.css", "@testing-library/jest-dom/vitest"] }
+    ],
     "eqeqeq": "error",
     "no-console": "warn"
   },
-  "ignorePatterns": ["dist/**"]
+  "ignorePatterns": ["dist/**", "node_modules/**"]
 }

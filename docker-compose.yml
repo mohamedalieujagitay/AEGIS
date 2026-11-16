@@ -1,0 +1,360 @@
+# AEGIS services (SYSTEM_ARCHITECTURE §12, DECISIONS.md D-050 to D-055).
+#
+# This file is the secure, production-like base. For development, add the
+# override, which enables live reload, development settings and automatic
+# migrations:
+#
+#   python infrastructure/scripts/init_dev_secrets.py
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# With this file alone, migrations are an explicit step:
+#
+#   docker compose --profile migrate run --rm migrate
+#   docker compose up -d
+#
+# Only the frontend is published, on 127.0.0.1. PostgreSQL and Valkey are
+# reachable only on internal networks.
+#
+# Docker Compose networks are NOT an outbound security boundary: a container
+# on a non-internal network (edge, egress) can reach the internet, the local
+# network and the host. Application-level destination validation is the
+# enforced boundary (SYSTEM_ARCHITECTURE §12.2).
+#
+# Settings are read from the environment or a .env file next to this file
+# (see .env.example). Secrets are files in ./secrets (AEGIS_SECRETS_DIR).
+
+name: aegis
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  privileged: false
+
+x-backend-image: &backend-image
+  image: aegis/backend:local
+  build:
+    context: .
+    dockerfile: infrastructure/docker/backend.Dockerfile
+
+# Settings shared by every process that runs the backend image.
+x-backend-environment: &backend-environment
+  AEGIS_ENVIRONMENT: production
+  AEGIS_LOG_FORMAT: json
+  AEGIS_LOG_LEVEL: ${AEGIS_LOG_LEVEL:-INFO}
+  AEGIS_SECRETS_DIR: /run/secrets
+
+# PostgreSQL connection for the API and the internal worker (runtime role).
+x-database-environment: &database-environment
+  AEGIS_DATABASE_HOST: postgres
+  AEGIS_DATABASE_NAME: aegis
+  AEGIS_DATABASE_USER: aegis_app
+  # Plain connections on the internal "data" network. Use verify-full when
+  # the database is reached over an untrusted network.
+  AEGIS_DATABASE_SSLMODE: disable
+
+x-valkey-environment: &valkey-environment
+  AEGIS_VALKEY_HOST: valkey
+  AEGIS_VALKEY_PORT: "6379"
+
+services:
+  postgres:
+    <<: *hardening
+    image: postgres:18.7-trixie@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
+    # Runs as the image's postgres user from the start, so the entrypoint
+    # needs no capabilities (no chown, no user switch).
+    user: "999:999"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+    secrets:
+      - postgres_superuser_password
+      - postgres_owner_password
+      - postgres_app_password
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./infrastructure/docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/run/postgresql:mode=1777
+      - /tmp:mode=1777
+    networks: [data]
+    healthcheck:
+      # TCP on 127.0.0.1: the temporary server used during initialization
+      # listens only on the socket, so this succeeds only for the real server.
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--dbname=aegis", "--username=aegis_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+      start_interval: 2s
+    shm_size: 128m
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 1g, pids: 200}
+    restart: unless-stopped
+
+  valkey:
+    <<: *hardening
+    image: valkey/valkey:9.1.3-alpine@sha256:bf09d58e96d6b4524a15396b65b242bbe18beebbcc15a04d8ee75ddac62fae0b
+    user: "999:1000"
+    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+    configs:
+      - source: valkey_config
+        target: /etc/valkey/valkey.conf
+    secrets:
+      - valkey_users.acl
+      - valkey_healthcheck_password
+    volumes:
+      - valkey-data:/data
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [queue]
+    healthcheck:
+      # Authenticates as the healthcheck ACL user, which may only run PING (no
+      # keys, no channels). The password goes from the secret file through a
+      # pipe: it never appears in a command line, an environment variable or
+      # the output ("OK", "PONG"). printf is a shell builtin in this image.
+      test:
+        - CMD-SHELL
+        - >-
+          printf 'AUTH healthcheck %s\nPING\n' "$$(cat /run/secrets/valkey_healthcheck_password)"
+          | valkey-cli | grep -qx PONG
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+      start_interval: 2s
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 384m, pids: 100}
+    restart: unless-stopped
+
+  # One-shot migration job, run as the schema owner. It only ever runs
+  # "alembic upgrade head": never downgrade, stamp or drop. In the base file
+  # it is behind a profile, so production runs it explicitly; the
+  # development override runs it automatically before the API starts.
+  migrate:
+    <<: [*hardening, *backend-image]
+    profiles: [migrate]
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      <<: [*backend-environment, *database-environment]
+      AEGIS_DATABASE_USER: aegis_owner
+    secrets:
+      - source: postgres_owner_password
+        target: aegis_database_password
+    tmpfs: [/tmp]
+    networks: [data]
+    init: true
+    depends_on:
+      postgres: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256m, pids: 100}
+    restart: "no"
+
+  backend:
+    <<: [*hardening, *backend-image]
+    command:
+      - uvicorn
+      - app.main:create_app
+      - --factory
+      - --host=0.0.0.0
+      - --port=8000
+      - --no-server-header
+      - --no-access-log
+      - --timeout-graceful-shutdown=20
+      - --proxy-headers
+      # Forwarding headers are trusted only from the frontend container.
+      - --forwarded-allow-ips=${AEGIS_SUBNET_PREFIX:-10.213}.0.10
+    environment:
+      <<: [*backend-environment, *database-environment, *valkey-environment]
+      AEGIS_VALKEY_USERNAME: aegis-api
+    secrets:
+      - source: postgres_app_password
+        target: aegis_database_password
+      - source: valkey_api_password
+        target: aegis_valkey_password
+    tmpfs: [/tmp]
+    # edge: frontend proxy and outbound DNS for scope validation.
+    # ingest: the result ingestion listener (Phase 03+; nothing listens yet).
+    networks: [edge, data, queue, ingest]
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck", "ready"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 20s
+      start_interval: 2s
+    depends_on:
+      postgres: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 512m, pids: 200}
+    restart: unless-stopped
+
+  # Trusted role: database access, no outbound internet (data and queue are
+  # internal networks).
+  worker-internal:
+    <<: [*hardening, *backend-image]
+    command:
+      - celery
+      - --app=app.workers.internal.worker
+      - worker
+      - --without-mingle
+      - --without-gossip
+      - --without-heartbeat
+      - --loglevel=INFO
+      - --concurrency=${AEGIS_WORKER_INTERNAL_CONCURRENCY:-2}
+      - --hostname=internal@%h
+    environment:
+      <<: [*backend-environment, *database-environment, *valkey-environment]
+      AEGIS_VALKEY_USERNAME: worker-internal
+    secrets:
+      - source: postgres_app_password
+        target: aegis_database_password
+      - source: valkey_internal_password
+        target: aegis_valkey_password
+    tmpfs: [/tmp]
+    networks: [data, queue]
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+      start_interval: 2s
+    depends_on:
+      postgres: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+    # Longer than the hard task time limit (360 s), so running tasks can finish.
+    stop_grace_period: 6m
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 512m, pids: 200}
+    restart: unless-stopped
+
+  # Untrusted role (SYSTEM_ARCHITECTURE §6.1, D-010): no database credentials,
+  # not on the data network, its own restricted Valkey user. "egress" gives
+  # it outbound access for future assessments; Compose does not filter it.
+  worker-assessment:
+    <<: [*hardening, *backend-image]
+    command:
+      - celery
+      - --app=app.workers.assessment.worker
+      - worker
+      - --without-mingle
+      - --without-gossip
+      - --without-heartbeat
+      - --loglevel=INFO
+      - --concurrency=${AEGIS_WORKER_ASSESSMENT_CONCURRENCY:-2}
+      - --hostname=assessment@%h
+    environment:
+      <<: [*backend-environment, *valkey-environment]
+      AEGIS_VALKEY_USERNAME: worker-assessment
+    secrets:
+      - source: valkey_assessment_password
+        target: aegis_valkey_password
+    tmpfs: [/tmp]
+    networks: [queue, ingest, egress]
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+      start_interval: 2s
+    depends_on:
+      valkey: {condition: service_healthy}
+    stop_grace_period: 6m
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 512m, pids: 200}
+    restart: unless-stopped
+
+  frontend:
+    <<: *hardening
+    image: aegis/frontend:local
+    build:
+      context: .
+      dockerfile: infrastructure/docker/frontend.Dockerfile
+    ports:
+      - "127.0.0.1:${AEGIS_HTTP_PORT:-8080}:8080"
+    tmpfs: [/tmp]
+    networks:
+      edge:
+        # Fixed address: the backend trusts forwarding headers only from it.
+        ipv4_address: ${AEGIS_SUBNET_PREFIX:-10.213}.0.10
+    init: true
+    healthcheck:
+      # Checks the static server and the /api/ proxy to the backend.
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/api/v1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+      start_interval: 2s
+    depends_on:
+      backend: {condition: service_healthy}
+    stop_grace_period: 20s
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 128m, pids: 100}
+    restart: unless-stopped
+
+# Networks follow SYSTEM_ARCHITECTURE §12.2. Subnets are explicit so they can
+# be added to the assessment denylist; change AEGIS_SUBNET_PREFIX if they
+# overlap with your networks.
+networks:
+  edge:
+    ipam:
+      config: [{subnet: "${AEGIS_SUBNET_PREFIX:-10.213}.0.0/24"}]
+  data:
+    internal: true
+    ipam:
+      config: [{subnet: "${AEGIS_SUBNET_PREFIX:-10.213}.1.0/24"}]
+  queue:
+    internal: true
+    ipam:
+      config: [{subnet: "${AEGIS_SUBNET_PREFIX:-10.213}.2.0/24"}]
+  ingest:
+    internal: true
+    ipam:
+      config: [{subnet: "${AEGIS_SUBNET_PREFIX:-10.213}.3.0/24"}]
+  egress:
+    ipam:
+      config: [{subnet: "${AEGIS_SUBNET_PREFIX:-10.213}.4.0/24"}]
+
+volumes:
+  postgres-data:
+  valkey-data:
+
+configs:
+  valkey_config:
+    file: ./infrastructure/docker/valkey/valkey.conf
+
+# Generated by infrastructure/scripts/init_dev_secrets.py; never committed.
+secrets:
+  postgres_superuser_password:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/postgres_superuser_password
+  postgres_owner_password:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/postgres_owner_password
+  postgres_app_password:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/postgres_app_password
+  valkey_api_password:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/valkey_api_password
+  valkey_internal_password:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/valkey_internal_password
+  valkey_assessment_password:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/valkey_assessment_password
+  valkey_healthcheck_password:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/valkey_healthcheck_password
+  valkey_users.acl:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/valkey_users.acl

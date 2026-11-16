@@ -49,7 +49,10 @@ def test_reads_database_environment_variables(monkeypatch: pytest.MonkeyPatch) -
     assert settings.database_configured is True
     url = build_database_url(settings)
     assert (url.host, url.port, url.database, url.username) == (
-        "postgres", 6543, "aegis_dev", "aegis_app"
+        "postgres",
+        6543,
+        "aegis_dev",
+        "aegis_app",
     )
     assert url.password == "from-env"
     assert url.query["sslmode"] == "verify-full"
@@ -155,7 +158,7 @@ def test_engine_creation_log_never_contains_credentials(
         _ = database.engine
     database.dispose()
     [record] = [r for r in caplog.records if getattr(r, "event", None) == "database.engine_created"]
-    assert getattr(record, "db_host") == "db.internal"
+    assert record.__dict__["db_host"] == "db.internal"
     logged = str(record.__dict__)
     assert PASSWORD not in logged
     assert "secret_user" not in logged

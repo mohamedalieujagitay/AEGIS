@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a feature or improvement.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        AEGIS follows the [development roadmap](https://github.com/mohamedalieujagitay/AEGIS/blob/main/docs/development/DEVELOPMENT_ROADMAP.md). Features outside the current phase may be deferred.
+
+        AEGIS does not accept exploitation, denial-of-service, evasion or arbitrary command execution features (Project Vision §7.2).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and scope considerations
+      description: Effects on authorization, assessment scope, worker isolation or data handling.
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: Related roadmap phase or decision
+      placeholder: "for example Phase 03, D-017"

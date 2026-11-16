@@ -1,0 +1,13 @@
+# Build context allowlist for backend.Dockerfile (context: repository root).
+# Everything is excluded except the files the image needs, so .env files,
+# secrets/, virtual environments and caches can never enter the image.
+*
+!apps/backend/requirements.lock
+!apps/backend/alembic.ini
+!apps/backend/migrations
+!apps/backend/app
+
+**/__pycache__
+**/*.py[cod]
+**/.env
+**/.env.*

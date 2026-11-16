@@ -73,7 +73,9 @@ def test_text_format(capsys: pytest.CaptureFixture[str]) -> None:
     configure_logging(Settings(log_format="text"))
     logging.getLogger("app.test").info("Readable line")
     output = capsys.readouterr().out
-    assert "INFO" in output and "app.test" in output and "Readable line" in output
+    assert "INFO" in output
+    assert "app.test" in output
+    assert "Readable line" in output
     assert not output.lstrip().startswith("{")
 
 
@@ -153,9 +155,10 @@ def test_safe_client_request_id_is_reused(make_app: MakeApp) -> None:
     assert response.json()["error"]["request_id"] == "client-abc-123"
 
 
-@pytest.mark.parametrize("unsafe", ["short", "x" * 65, "has spaces in it", "inject}{\"a\":1"])
+@pytest.mark.parametrize("unsafe", ["short", "x" * 65, "has spaces in it", 'inject}{"a":1'])
 def test_unsafe_client_request_id_is_replaced(make_app: MakeApp, unsafe: str) -> None:
     response = TestClient(make_app()).get("/api/v1/nothing", headers={REQUEST_ID_HEADER: unsafe})
     generated = response.headers[REQUEST_ID_HEADER]
     assert generated != unsafe
-    assert len(generated) == 32 and all(c in "0123456789abcdef" for c in generated)
+    assert len(generated) == 32
+    assert all(c in "0123456789abcdef" for c in generated)

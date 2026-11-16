@@ -21,6 +21,7 @@ from app.core.config import Settings
 from app.core.request_context import request_id_var
 
 SERVICE_NAME: Final = "aegis-api"
+"""Default service name: the API. Worker processes pass their own."""
 HANDLER_NAME: Final = "aegis"
 REDACTED: Final = "[REDACTED]"
 HTTP_CLIENT_LOGGERS: Final = ("httpx", "httpx2", "httpcore", "httpcore2")
@@ -62,12 +63,16 @@ class RequestIdFilter(logging.Filter):
 class JsonFormatter(logging.Formatter):
     """Format records as single-line JSON objects."""
 
+    def __init__(self, service: str = SERVICE_NAME) -> None:
+        super().__init__()
+        self._service = service
+
     def format(self, record: logging.LogRecord) -> str:
         entry: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "service": SERVICE_NAME,
+            "service": self._service,
             "message": record.getMessage(),
         }
         entry.update(_extra_fields(record))
@@ -86,8 +91,10 @@ class TextFormatter(logging.Formatter):
         super().__init__("%(asctime)s %(levelname)-7s %(name)s [%(request_id)s] %(message)s")
 
 
-def configure_logging(settings: Settings) -> None:
+def configure_logging(settings: Settings, service: str = SERVICE_NAME) -> None:
     """Route application and server logs through one handler.
+
+    ``service`` names the process in JSON records (the API by default).
 
     Safe to call more than once: the AEGIS handler is replaced, and handlers
     added by others (for example test harnesses) are kept.
@@ -95,7 +102,9 @@ def configure_logging(settings: Settings) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.set_name(HANDLER_NAME)
     handler.addFilter(RequestIdFilter())
-    handler.setFormatter(JsonFormatter() if settings.log_format == "json" else TextFormatter())
+    handler.setFormatter(
+        JsonFormatter(service) if settings.log_format == "json" else TextFormatter()
+    )
 
     root = logging.getLogger()
     for existing in list(root.handlers):

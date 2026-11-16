@@ -1,7 +1,7 @@
 # AEGIS — Decision Register
 
 **Status:** Living document  
-**Last Updated:** 2026-11-15  
+**Last Updated:** 2026-11-16  
 **Related:** [PROJECT_VISION.md](../PROJECT_VISION.md) · [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md) · [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) · [DEVELOPMENT_ROADMAP.md](../development/DEVELOPMENT_ROADMAP.md)
 
 This register records approved product and architecture decisions. Changing one of these decisions requires a new entry that supersedes the old one. Entries are never edited silently.
@@ -18,7 +18,7 @@ This register records approved product and architecture decisions. Changing one 
 | D-008 | Synchronous SQLAlchemy 2.x with psycopg 3 | 2026-11-15 | Approved |
 | D-009 | Valkey as the message broker | 2026-11-15 | Approved |
 | D-010 | Enforced separation between assessment workers and the database | 2026-11-15 | Approved |
-| D-011 | Signed job payloads, per-job ingestion tokens, separate ingestion listener | 2026-11-15 | Approved |
+| D-011 | Signed job payloads, per-job ingestion tokens, separate ingestion listener | 2026-11-15 | Approved; payload-visibility limitation tracked as SR-001 (D-060) |
 | D-012 | Administrator and CLI password reset only in v0.1.0 | 2026-11-15 | Approved |
 | D-013 | Withdrawn | 2026-11-15 | Withdrawn |
 | D-014 | Root `tests/` for end-to-end tests; no `packages/` or top-level `workers/` | 2026-11-15 | Approved |
@@ -31,9 +31,9 @@ This register records approved product and architecture decisions. Changing one 
 | D-021 | Vite 8 as the frontend build tool | 2026-11-15 | Approved |
 | D-022 | React Router 8 for routing | 2026-11-15 | Approved |
 | D-023 | npm as the frontend package manager | 2026-11-15 | Approved |
-| D-024 | Node.js 22 LTS, version 22.22.0 or later | 2026-11-15 | Approved |
+| D-024 | Node.js 22 LTS, version 22.22.0 or later | 2026-11-15 | Superseded by D-047 (minimum 22.22.2) |
 | D-025 | Template linter (oxlint) removed; linter chosen in its roadmap task | 2026-11-15 | Resolved by D-033 |
-| D-026 | TypeScript 7, subject to compatibility testing | 2026-11-15 | Approved, conditional (linting and formatting verified; testing tools pending) |
+| D-026 | TypeScript 7, subject to compatibility testing | 2026-11-15 | Approved; linting, formatting and testing tools verified (D-033, D-047) |
 | D-027 | Strict TypeScript compiler profile | 2026-11-15 | Approved |
 | D-028 | Tailwind CSS 4, CSS-first, through the official Vite plugin | 2026-11-15 | Approved |
 | D-029 | Frontend routing architecture | 2026-11-15 | Approved |
@@ -47,11 +47,27 @@ This register records approved product and architecture decisions. Changing one 
 | D-037 | Workflow-based navigation with a module mapping (PRD §5.2) | 2026-11-15 | Approved |
 | D-038 | Dashboard metrics aligned with the approved design (PRD §5.3) | 2026-11-15 | Approved |
 | D-039 | Phase 1.3 split into two bundles | 2026-11-15 | Approved |
-| D-040 | Backend packaging, application factory and configuration | 2026-11-15 | Approved |
+| D-040 | Backend packaging, application factory and configuration | 2026-11-15 | Approved; lock file chosen in D-046; worker-side packages created by D-048 |
 | D-041 | Backend test client and FastAPI's OpenTelemetry dependency | 2026-11-15 | Approved; Uvicorn and httpx2 approved |
-| D-042 | Backend errors, logging, request validation and API documentation | 2026-11-15 | Approved |
-| D-043 | Database foundation: configuration, engine, sessions, ORM base and migrations | 2026-11-15 | Approved; psycopg licence reviewed for Windows, Linux review pending (task 1.5) |
-| D-044 | Database tests use a disposable PostgreSQL cluster | 2026-11-15 | Approved |
+| D-042 | Backend errors, logging, request validation and API documentation | 2026-11-15 | Approved; server header and Swagger UI open items resolved by D-051 and D-056 |
+| D-043 | Database foundation: configuration, engine, sessions, ORM base and migrations | 2026-11-15 | Approved; psycopg Linux wheel reviewed in D-059 |
+| D-044 | Database tests use a disposable PostgreSQL cluster | 2026-11-15 | Approved; CI provisioning in D-048 |
+| D-045 | Backend test configuration, linting, formatting and type checking | 2026-11-16 | Approved |
+| D-046 | Backend dependency lock file with pip-tools | 2026-11-16 | Approved; runtime lock `requirements.lock` added by D-051, both documented in CONTRIBUTING §2 |
+| D-047 | Frontend testing with Vitest; Node.js 22.22.2 or later | 2026-11-16 | Approved; supersedes D-024, resolves D-026 |
+| D-048 | Continuous integration workflow and import-boundary contracts | 2026-11-16 | Approved |
+| D-049 | Pull request conventions and recommended repository settings | 2026-11-16 | Approved; required checks extended by D-058 |
+| D-050 | Phase 1.5 scope and Docker Compose layout | 2026-11-16 | Approved |
+| D-051 | Container images | 2026-11-16 | Approved |
+| D-052 | Services, networks, frontend proxy and startup order | 2026-11-16 | Approved |
+| D-053 | Secrets and environment variables | 2026-11-16 | Approved |
+| D-054 | PostgreSQL roles | 2026-11-16 | Approved; migration metadata restricted by D-060 |
+| D-055 | Valkey and the Celery application skeleton | 2026-11-16 | Approved; healthcheck user authenticated by D-060 |
+| D-056 | Swagger UI served from local assets | 2026-11-16 | Approved |
+| D-057 | Health checks | 2026-11-16 | Approved; probe logging and Valkey health check amended by D-060 |
+| D-058 | Container smoke test in CI | 2026-11-16 | Approved |
+| D-059 | Linux psycopg wheel review; container images are not distributed | 2026-11-16 | Approved; keyutils licence and versions reconciled in D-060; distribution compliance review pending |
+| D-060 | Phase 1.5 review corrections | 2026-11-16 | Approved |
 
 ---
 
@@ -450,3 +466,224 @@ Database tests must never touch a developer's or production database. `tests/pos
 - Tools are run with fixed argument lists, never through a shell.
 
 No test dependency was added (such as testcontainers or pytest-postgresql). Docker-based test databases and CI provisioning belong to tasks 1.5 and 1.6.
+
+## D-045 — Backend test configuration, linting, formatting and type checking
+
+Roadmap tasks 1.6.1, 1.6.3 and 1.6.4. All configuration is in `apps/backend/pyproject.toml`.
+
+**Pytest.** `--strict-markers`, `--strict-config`, `xfail_strict` and `filterwarnings = ["error"]`, so unknown markers, configuration mistakes, unexpected passes and new warnings fail the run. Tests that use the disposable PostgreSQL server are marked `database` automatically by `conftest.py`, so `pytest -m "not database"` runs the fast tests only. Setting `AEGIS_TEST_REQUIRE_POSTGRES=1` makes a missing PostgreSQL installation fail the run instead of skipping the database tests (used in CI, D-048).
+
+**Ruff** (MIT) lints and formats Python, replacing flake8, isort and black with one tool. Line length 100 (matching Prettier), Python 3.11 syntax. Rule groups: pycodestyle (`E`, `W`), Pyflakes (`F`), import sorting (`I`), bugbear (`B`), pyupgrade (`UP`), simplify (`SIM`), bandit security rules (`S`), comprehensions (`C4`), Ruff rules (`RUF`), pytest style (`PT`), timezone-aware datetimes (`DTZ`) and no `print` (`T20`). Tests may use `assert` and fixed placeholder passwords (`S101`, `S105`, `S106`). FastAPI's `Depends`, `Query`, `Path` and `Body` are declared immutable, because FastAPI evaluates them once by design.
+
+**mypy** (MIT) runs in `strict` mode on `app`, `migrations` and `tests`.
+
+Changes made to existing code while introducing these tools, none of which changes behaviour:
+
+- The exception handlers in `app/core/errors.py` used `assert isinstance(...)` only to narrow the declared `Exception` parameter for the type checker. Assertions are removed under `python -O` and flagged by the security rules, so they were replaced with `typing.cast`. FastAPI calls each handler only for the exception type it is registered for.
+- `Base.type_annotation_map` keeps a single, commented `# noqa: RUF012`: SQLAlchemy reads this class attribute by name and it is never mutated.
+- Two `subprocess.run` calls in the test harness carry `# noqa: S603`; they run fixed argument lists, never a shell (D-044).
+- Ruff formatting was applied once to the existing code. Composite test assertions were split, so failures identify the exact condition.
+
+pathspec, a dependency of mypy, is licensed under MPL-2.0 (file-level copyleft). It is a development tool that AEGIS does not modify or distribute, so this is acceptable.
+
+## D-046 — Backend dependency lock file
+
+Resolves the open lock-file question in D-040.
+
+- `apps/backend/requirements-dev.lock` pins every runtime and development dependency to an exact version with SHA-256 hashes for all published files. It is generated by **pip-tools** 7.7 (BSD-3-Clause) from the ranges in `pyproject.toml`, which remain the source of truth. pip-tools is declared in the separate `lock` extra and is not part of the lock itself. uv was not used, consistent with D-007.
+- Install with `pip install --require-hashes -r requirements-dev.lock`, then `pip install --no-deps -e .`. Hash checking rejects any file that differs from the recorded one.
+- The lock is generated on Windows with Python 3.11. pip-tools drops platform markers, so the Windows-only dependencies `colorama` and `tzdata` are installed on every platform. Both are small pure-Python packages, so this is harmless; the reverse (a lock generated on Linux) would miss them on Windows.
+- Verified on 2026-11-16: hash-checked installs on Windows (fresh virtual environment) and Linux (Debian bookworm container, Python 3.11.18) both produce exactly the locked set, `pip check` passes, and regenerating the lock produces an identical file.
+- Not covered: the build backend (setuptools) used by the editable install is fetched by pip's build isolation and is not hash-pinned.
+
+## D-047 — Frontend testing with Vitest; Node.js 22.22.2 or later
+
+Roadmap task 1.6.2. Supersedes D-024 and resolves D-026.
+
+**Tools** (all MIT): Vitest 5.1, jsdom 31, React Testing Library 16 (`@testing-library/react` with `@testing-library/dom`), `@testing-library/user-event` 14 and `@testing-library/jest-dom` 7.
+
+- Vitest reuses `vite.config.ts` (imported from `vitest/config`), so tests use the same React and Tailwind plugins as the application. Tests live next to the code as `src/**/*.test.ts(x)`; shared setup is in `src/test/setup.ts`. Mocks and stubbed globals are restored after every test.
+- `tsconfig.test.json` type-checks the tests as part of `npm run typecheck` and `npm run build`. The jest-dom matcher types are available only there, not in application code (`tsconfig.app.json` excludes tests).
+- Oxlint, with type-aware rules, lints the tests like application code (D-033).
+- jsdom does not implement scrolling, so `window.scrollTo` (called by React Router's `ScrollRestoration`) is stubbed in the test setup only.
+- Tests use real components and the real route configuration with a memory router; no mock data.
+
+**TypeScript 7 (D-026).** Verified with Vitest, React Testing Library and jest-dom: tests run, `tsc` type-checks the test files (including matcher argument types) and type-aware linting covers them. No downgrade to TypeScript 5 is needed, so D-026 is no longer conditional.
+
+**Node.js.** jsdom 30 and later require Node.js 22.22.2 or later. The minimum in `apps/frontend/package.json` is therefore raised from 22.22.0 to **22.22.2**. The development and CI baseline is **22.23.5**, the current Node.js 22 LTS release (a security release), recorded in `apps/frontend/.nvmrc`. jsdom 29, which still supports Node.js 22.22.0, was rejected because it is a superseded major version.
+
+## D-048 — Continuous integration workflow and import-boundary contracts
+
+Roadmap task 1.6.5 and the import-linter task of 1.6. Implements D-010 and D-015.
+
+**Workflows.**
+
+- `.github/workflows/ci.yml` runs on every pull request, on pushes to `main` and manually. It has two jobs on `ubuntu-24.04`:
+  - **Backend** (Python 3.11): hash-checked install from `requirements-dev.lock`, `pip check`, `ruff check`, `ruff format --check`, `mypy`, `lint-imports` and `pytest`.
+  - **Frontend** (Node.js from `.nvmrc`): `npm ci`, typecheck, lint, format check, tests and production build.
+- `.github/workflows/pr-title.yml` checks pull request titles against Conventional Commits (D-049).
+
+**Security.**
+
+- The token is read-only (`contents: read`) and no secrets are used.
+- The workflows use `pull_request`, never `pull_request_target`, so code from forks gets no write access or secrets.
+- Actions are pinned to full commit hashes with the release tag in a comment (`actions/checkout` 7.0.1, `actions/setup-python` 7.1.0, `actions/setup-node` 7.1.0). Checkout does not keep credentials.
+- The pull request title is untrusted. It reaches the shell only through an environment variable and is only compared with a regular expression, never executed or echoed into workflow commands.
+- Every job has a timeout. A new push cancels superseded runs of the same pull request or branch.
+
+**PostgreSQL in CI.** CI installs the PostgreSQL 18 server binaries from the PostgreSQL project's signed apt repository, without creating a cluster or service, and the existing test harness (D-044) creates its disposable cluster on 127.0.0.1 inside the runner. Local and CI database tests use the same code path, and no option exists to point the tests at an existing server. `AEGIS_TEST_REQUIRE_POSTGRES=1` makes CI fail if the database tests cannot run (D-045). A GitHub Actions service container was rejected because the harness would have needed a way to connect to an external server, which could be pointed at a real database.
+
+**Import-boundary contracts.** An import-linter (BSD-2-Clause) "forbidden" contract in `pyproject.toml` implements SYSTEM_ARCHITECTURE §4.5: `app.workers.assessment`, `app.netguard`, `app.contracts` and `app.modules.*.engine` must not import `app.database`, `app.models`, `app.services`, `app.api`, `sqlalchemy`, `psycopg` or `alembic`, directly or indirectly.
+
+- import-linter refuses to run a contract that names a missing internal package, so `app.workers` (with `app.workers.assessment`), `app.netguard`, `app.contracts` and `app.services` were created as **empty packages containing only a docstring** that states their boundary. They contain no functionality; the roadmap tasks that need them fill them in. This amends D-040's rule of creating packages only when needed, for these packages only.
+- `app.modules.*.engine` matches nothing yet and starts being checked automatically when the first engine package is created.
+- Verified on 2026-11-16: the contract passes on the current code, and fails on deliberate violations, both direct (`app.workers.assessment` importing `sqlalchemy`) and indirect (`app.netguard` importing `app.main`, which imports `app.database` and `sqlalchemy`).
+
+## D-049 — Pull request conventions and recommended repository settings
+
+Roadmap task 1.6.6.
+
+- `.github/pull_request_template.md` asks for the summary, affected modules, decisions, security implications, tests run, known limitations and a checklist (CONTRIBUTING §6).
+- Issue forms for bug reports and feature requests. Blank issues are disabled, and the issue chooser directs security vulnerabilities to private vulnerability reporting.
+- Pull request titles must follow Conventional Commits (CONTRIBUTING §5), checked by CI: a known type, an optional lowercase scope, an optional `!`, a summary that does not start with a capital letter or end with a period, and at most 72 characters. Squash merging makes the title the commit message on `main`.
+- No commit-message hooks (commitlint, husky, pre-commit) are added; the CI title check covers the merged history without extra tooling.
+
+**Recommended repository settings**, applied manually by a maintainer (not automated):
+
+- Merging: allow squash merging only, using the pull request title as the commit message; delete head branches after merge.
+- Branch protection (or a ruleset) on `main`: require a pull request; require the status checks "Backend (Python 3.11)", "Frontend (Node.js)" and "Conventional Commits title" to pass, with branches up to date; block force pushes and deletion.
+- Actions: allow only actions pinned to a full commit hash; set the default workflow token permission to read-only; require approval for workflow runs from first-time contributors.
+- Security: enable private vulnerability reporting, Dependabot alerts and secret scanning with push protection.
+
+## D-050 — Phase 1.5 scope and Docker Compose layout
+
+Roadmap Phase 1.5 is implemented as written in the roadmap and SYSTEM_ARCHITECTURE §6 and §12: Valkey (not Redis) as the Celery broker with ACL users per role, a Celery application skeleton with the two worker roles (D-020), the five Docker networks of §12.2, environment variables, health checks and service dependencies. No assessment tasks, authentication or scanning functionality are implemented.
+
+- `docker-compose.yml` is the secure, production-like base. `docker-compose.dev.yml` is the development override: development settings, the API also published on `127.0.0.1:8000` with live reload of the mounted source (read-only), and automatic migrations. All security settings of the base file stay in force with the override.
+- The Compose project is named `aegis`, so Docker Desktop groups the containers as `aegis` (`aegis-backend-1` and so on). Compose requires lowercase project names.
+- Docker Compose is not an outbound security boundary (§12.2). Containers on the non-internal `edge` and `egress` networks can reach the internet, the local network and the host.
+
+## D-051 — Container images
+
+- **Backend** (`infrastructure/docker/backend.Dockerfile`): one image for the API, the migration job and both worker roles (§6.1). Multi-stage build on `python:3.11.18-slim-trixie`. Runtime dependencies are installed from `apps/backend/requirements.lock` (runtime only, generated by pip-tools like the development lock, D-046) with `--require-hashes --only-binary=:all:`, so no package can run build code. pip, setuptools and wheel are then removed from the image: nothing is installed at runtime, and this also removes the setuptools advisory found in Phase 1.6. The code is owned by root and read-only for the `aegis` user (UID 10001). No compilers, network tools such as curl, or extra system packages are installed. Image size: 324 MB.
+- **Frontend** (`infrastructure/docker/frontend.Dockerfile`): built with `node:22.23.5-trixie-slim` (`npm ci --ignore-scripts`, then `npm run build`), served by `nginxinc/nginx-unprivileged:1.30.6-alpine` (UID 101). The nginx configuration is part of the image. Image size: 91 MB.
+- Every base image (including PostgreSQL and Valkey in Compose) is pinned by its multi-architecture index digest, with the tag in a comment.
+- Builds use the repository root as context with an allowlist ignore file per Dockerfile (`*.Dockerfile.dockerignore`): everything is excluded except the files each image needs, so `.env` files, `secrets/`, virtual environments and caches can never enter an image.
+- Uvicorn runs with `--no-server-header` (resolves the D-042 deployment item; verified: no `server` header), `--no-access-log` and `--timeout-graceful-shutdown 20`. `--proxy-headers` trusts forwarding headers only from the frontend container's fixed address (`--forwarded-allow-ips=<prefix>.0.10`; Uvicorn 0.54 accepts single addresses and networks, verified in its source). nginx replaces, never appends to, `X-Forwarded-For`.
+- Uvicorn re-raises the SIGTERM it received after a graceful shutdown, so a cleanly stopped API container reports exit code 143. The smoke test accepts 143 only together with Uvicorn's "Finished server process" log line.
+- Images are built locally only (D-059).
+
+## D-052 — Services, networks, frontend proxy and startup order
+
+| Service | Networks | Published |
+|---|---|---|
+| frontend | edge (fixed address `<prefix>.0.10`) | `127.0.0.1:8080` |
+| backend | edge, data, queue, ingest | development override only: `127.0.0.1:8000` |
+| migrate (one-shot) | data | — |
+| worker-internal | data, queue | — |
+| worker-assessment | queue, ingest, egress | — |
+| postgres | data | — |
+| valkey | queue | — |
+
+- Networks follow §12.2: `data`, `queue` and `ingest` are internal (no outbound access); `edge` and `egress` are not. Subnets are explicit (`AEGIS_SUBNET_PREFIX`, default `10.213`, one /24 per network) so they can be added to the netguard denylist. The `ingest` listener itself is Phase 03+ work; the network exists, nothing listens on it yet.
+- **Frontend server:** nginx serves the built application and proxies `/api/` to the backend, so the browser uses one origin (no CORS; Phase 02 cookie sessions and CSRF protection rely on this). It sends a strict Content Security Policy (`default-src 'self'`, no inline scripts or styles; the build contains none), `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy: no-referrer` and `Permissions-Policy`. `server_tokens off` hides the nginx version; the `Server: nginx` header itself remains, because removing it needs a third-party module. The backend's address is resolved through Docker's DNS at request time. In development, Vite proxies `/api` to `127.0.0.1:8000` (`AEGIS_DEV_API_URL`).
+- **Startup order** uses health conditions, not start order: postgres (healthy: `pg_isready` over TCP, which only the final server answers) → migrate (development: completed successfully) → backend (healthy: readiness) → frontend (healthy: the `/api/` proxy answers). Valkey (healthy: PING as the PING-only `healthcheck` ACL user) gates the backend and both workers. The worker-assessment depends only on Valkey.
+- The application does not rely on the order either: the database engine and broker client are created lazily and reconnect, readiness reports the current state, and Celery retries the broker connection indefinitely.
+- `init: true` (tini) is PID 1 for the backend, workers, migration job and frontend; PostgreSQL and Valkey use their images' own process handling. Stop grace periods: 30 s for the API and databases, 6 minutes for workers (longer than the 360 s hard task limit). Restart policy `unless-stopped`; the migration job never restarts.
+- **Container hardening** for every service, including PostgreSQL and Valkey: non-root user, read-only root filesystem with tmpfs mounts, all capabilities dropped (none added: PostgreSQL and Valkey start directly as their own users, so their entrypoints need no capability), `no-new-privileges`, not privileged, CPU, memory and process limits, no Docker socket. Verified on the running containers (D-058).
+
+## D-053 — Secrets and environment variables
+
+- **Secrets are files, never environment variables or image content.** `python infrastructure/scripts/init_dev_secrets.py` (Python standard library only) creates random passwords and the Valkey ACL file in `secrets/` (gitignored). It never overwrites a file: running it again creates only what is missing. If the ACL file no longer matches the password files or the current ACL rules, it stops with instructions instead of rewriting it. Secret values are never printed. The directory is 0700; the files are 0644 because Compose bind-mounts them into containers running as other users.
+- Compose passes each container only the secrets it needs, under `/run/secrets`, renamed to the setting they supply (`aegis_database_password`, `aegis_valkey_password`). The backend reads them through pydantic-settings' secret-file support, enabled only when `AEGIS_SECRETS_DIR` is set; environment variables take precedence. The assessment worker receives only its Valkey password.
+- Non-secret settings are set per service in `docker-compose.yml`. Compose-level options (ports, subnet prefix, secrets directory, log level, worker concurrency) are documented in the root `.env.example`; the backend's own variables, for running it outside Docker, in `apps/backend/.env.example`. Containers never read a `.env` file, so Docker and local defaults cannot conflict.
+- New backend settings: `AEGIS_VALKEY_HOST`, `_PORT`, `_DB`, `_USERNAME`, `_PASSWORD`, `_TLS`, `_CONNECT_TIMEOUT`, `_SOCKET_TIMEOUT`, `AEGIS_HEALTH_CHECK_TIMEOUT`, `AEGIS_WORKER_TASK_SOFT_TIME_LIMIT`, `AEGIS_WORKER_TASK_TIME_LIMIT`, `AEGIS_WORKER_HEARTBEAT_FILE` and `AEGIS_SECRETS_DIR`. In production, a configured Valkey host requires a username and password. Defaults remain secure (production environment, debug and documentation off).
+
+## D-054 — PostgreSQL roles
+
+Created once, when the data directory is first initialized, by `infrastructure/docker/postgres/initdb/10-aegis-roles.sh` (the postgres image's initialization mechanism). It never runs against an existing database and never drops anything.
+
+- `aegis_owner` owns the `aegis` database and the `public` schema. Only the migration job uses it.
+- `aegis_app` is used by the API and the internal worker. Default privileges give it `SELECT`, `INSERT`, `UPDATE` and `DELETE` on tables and `USAGE`, `SELECT` on sequences created by the owner: data access only.
+- Neither role is a superuser or can create databases, roles or replication connections. `PUBLIC` has no access to the `aegis` database or the `public` schema, and cannot connect to the `postgres` database.
+- The superuser (`postgres`) is refused over the network (`pg_hba.conf` reject rule); it can connect only through the local socket inside the container.
+- Verified by the smoke test: the runtime role can read data but is refused `CREATE TABLE`, `DROP TABLE`, `ALTER TABLE`, `TRUNCATE` and `CREATE SCHEMA`; the owner can change the schema; the superuser cannot connect over TCP.
+- Limitation: default privileges also give `aegis_app` data access to `alembic_version`.
+- **Migrations** run only `alembic upgrade head`, as `aegis_owner`: automatically in development (`migrate` service before the API), explicitly in production (`docker compose --profile migrate run --rm migrate`). Nothing ever downgrades, stamps or drops.
+
+## D-055 — Valkey and the Celery application skeleton
+
+**Client.** kombu has no Valkey-specific transport, so Celery uses its Redis transport (`redis://`, `rediss://`) with the `redis` client library (MIT; the client is not affected by the Redis server's licence change), which also serves the readiness check. Valkey 9.1.3.
+
+**Celery 5.7.0** (`app/workers/celery_app.py`), one factory for the API (sender) and both roles:
+
+- JSON serialization only; pickle can never be accepted. No result backend (§2.4; results use the ingestion listener).
+- Each role has its own exchange and queue namespace (`internal.*`, `assessment.*`). Task names select the queue (`aegis.internal.*`, `aegis.assessment.*`); a task matching neither cannot be sent, because the default queue is never declared and missing queues are never created.
+- Remote control, events, mingle, gossip and heartbeat are disabled: they use Pub/Sub and shared keys, which the ACL users cannot access. Messages being processed are tracked under per-role keys (`<role>.unacked*`).
+- Prefetch 1, soft and hard task time limits (`AEGIS_WORKER_TASK_SOFT_TIME_LIMIT`, `AEGIS_WORKER_TASK_TIME_LIMIT`, defaults 300 and 360 s), 100 tasks per child process, and the broker connection is retried indefinitely at startup and after outages.
+- Workers log through the AEGIS logging configuration with their own service names (`aegis-worker-internal`, `aegis-worker-assessment`). Celery masks the broker password in its output (verified).
+- No tasks exist yet. Worker availability (§12.4): remote control is disabled, so each worker's consumer touches a heartbeat file on its tmpfs while connected, and the container health check (`python -m app.workers.healthcheck`) fails when it is older than 30 s.
+
+**ACL users** (generated into the ACL file, passwords stored as SHA-256 hashes):
+
+| User | Commands | Keys |
+|---|---|---|
+| `default` | disabled | — |
+| `healthcheck` | `PING` only, no password | none |
+| `aegis-api` | connect, `LPUSH`, `SADD`, `SMEMBERS`, `LLEN`, `MULTI`, `EXEC` | `internal.*`, `assessment.*` and their kombu binding keys |
+| `worker-internal` | connect, consumer commands (`BRPOP`, list, set, sorted-set, hash and string commands, transactions, `EVALSHA` and `SCRIPT LOAD` for kombu's mutex) | `internal.*` and its binding keys only |
+| `worker-assessment` | as `worker-internal` | `assessment.*` and its binding keys only |
+
+No user has Pub/Sub channels or administrative commands. A Lua script runs with the calling user's ACL, so `EVALSHA` gives no access beyond the user's own commands and keys. Server-wide, `DEBUG` and `MODULE` are disabled and memory is never evicted (`maxmemory-policy noeviction`); queued jobs survive restarts (append-only file on the `valkey-data` volume). Verified twice: in the planning probe, and by the smoke test against the real configuration (each role is refused the other role's queue, unacknowledged messages and bindings, and `KEYS`, `FLUSHALL`, `FLUSHDB`, `CONFIG`, `DEBUG`, `MODULE`, `ACL`, `PUBLISH` and `SHUTDOWN`; the API user cannot consume; unauthenticated clients are refused; tasks reach only their own role's worker). Known limitation (unchanged from D-011): assessment workers sharing a queue can read each other's payloads.
+
+## D-056 — Swagger UI served from local assets
+
+Resolves the D-042 open item. Swagger UI 5.35.0 (`swagger-ui-dist`, Apache-2.0) is vendored in `apps/backend/app/static/swagger-ui/`: `swagger-ui-bundle.js`, `swagger-ui.css`, `favicon-32x32.png`, with the package's `LICENSE`, `NOTICE` and `swagger-ui-bundle.js.LICENSE.txt` (licences of the bundled components: MIT, and DOMPurify under Apache-2.0 or MPL-2.0). `PROVENANCE.txt` records the npm tarball's sha512 (verified against the registry) and each file's SHA-256; a test checks the hashes, and `.gitattributes` keeps the files byte-for-byte.
+
+- The files are copied from the verified tarball and never installed with npm, because the package depends on `@scarf/scarf`, an install-time analytics package (PRD §4.6).
+- The documentation page (`/api/docs`, assets under `/api/docs/assets/`) is served only when documentation is enabled (development and test by default). It references only these local files, and Swagger UI's validator is disabled (`validatorUrl: null`), so opening it contacts no third party.
+
+## D-057 — Health checks
+
+- `GET /api/v1/health/live`: liveness. Checks no dependency, so a database or broker outage never makes an orchestrator restart a working API process. `200 {"status": "ok"}`.
+- `GET /api/v1/health/ready`: readiness. PostgreSQL (`Database.ping()`) and Valkey (`Broker.ping()`) must both be reachable. `200 {"status": "ready", "checks": {"database": "ok", "broker": "ok"}}`, otherwise `503` in the standard error format, code `service_not_ready`, with one detail per unavailable dependency.
+- Each probe runs in a worker thread with a time limit (`AEGIS_HEALTH_CHECK_TIMEOUT`, default 2 s); a probe that does not finish is abandoned and reported unavailable. Concurrent requests share one evaluation, reused for 1 s, so frequent probes cannot open many connections or occupy many threads while a dependency is down. Both probes use pooled connections (the engine's pool; the broker client keeps up to four connections).
+- Responses name dependencies only and are never cached (`Cache-Control: no-store`). Failures are logged with the exception type only.
+- Container health checks: backend `python -m app.healthcheck ready`; workers `python -m app.workers.healthcheck` (heartbeat, D-055); postgres `pg_isready`; valkey `PING`; frontend fetches `/api/v1/health/live` through its own proxy. None uses a shell.
+
+## D-058 — Container smoke test in CI
+
+`infrastructure/scripts/smoke_test.py` (Python standard library and the Docker CLI) starts the production-like stack as the separate Compose project `aegis-smoke`, with temporary secrets, its own subnets (`10.214`), host port (`18080`) and volumes. It runs the migration explicitly and checks more than 100 conditions: health of every service, the frontend and its API proxy, security headers, health endpoints, no Uvicorn server header, forwarding-header trust, migrations at head, PostgreSQL role permissions, worker isolation (DNS, TCP and credentials), Valkey ACLs, task routing, network membership, published ports, container security settings on the running containers, secrets absent from images, and graceful shutdown. It removes only the `aegis-smoke` containers, networks and volumes afterwards; it refuses to run under the name `aegis`.
+
+The CI workflow runs it in a third job, "Containers (build and smoke test)", on every pull request and push to `main`. Images are never pushed or uploaded. This job should be added to the required status checks (D-049).
+
+## D-059 — Linux psycopg wheel review; container images are not distributed
+
+Completes the review left open by D-043. The backend image installs `psycopg-binary` 3.3.9 from the manylinux wheels pinned in the lock file (`manylinux2014_x86_64` and `manylinux_2_28_aarch64`, matched by SHA-256). Unlike the Windows wheel (libpq and OpenSSL only), the Linux wheels bundle Kerberos/GSSAPI, LDAP, SASL, keyutils and libcrypt as well. Versions were read from the binaries and from psycopg's build script at tag 3.3.9; licence texts were read from each project's source at the matching release (details and SHA-256 hashes in THIRD_PARTY_NOTICES.md, "psycopg Licence Review").
+
+- LGPL components: psycopg (LGPL-3.0-only), keyutils (LGPL-2.0-or-later per its source; distributed with the LGPL-2.1 text) and libcrypt (glibc on x86_64, libxcrypt on aarch64; LGPL-2.1-or-later).
+- Cyrus SASL's licence requires the acknowledgement "This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/)" in any redistribution.
+- The wheel contains only psycopg's own licence text.
+
+**Decision:** building and running images locally is not distribution and is allowed. **No image may be published, pushed or otherwise distributed** until a separate distribution-compliance review has added the required licence texts and notices to the images and arranged source availability for the LGPL components (and for the GPL and other packages of the Debian base image). Distribution compliance has not been achieved.
+
+## D-060 — Phase 1.5 review corrections
+
+Five corrections from the Phase 1.5 review. The infrastructure design is unchanged.
+
+**1. Linux psycopg licensing reconciled (amends D-059).** Verified against the exact wheels in the lock file, their binaries and the matching upstream sources:
+
+- keyutils: x86_64 bundles keyutils **1.5.8** (`libkeyutils.so.1.5`); aarch64 bundles keyutils **1.5.10** (package `keyutils-libs-1.5.10-9.el8`, `libkeyutils.so.1.6`). The `.so.1.6` suffix is the library API version: 1.5.10 adds the `KEYUTILS_1.6` symbol-version block, and the binaries define exactly these blocks. The earlier note "1.6" was the API version, not the package version.
+- keyutils licence: the library sources (`keyutils.c`, `keyutils.h`) state "GNU Lesser General Public License … version 2 … or (at your option) any later version", upstream ships the LGPL-2.1 text, and RHEL/CentOS 8 declares `LGPLv2+`. Recorded as `LGPL-2.0-or-later` as written (Fedora's SPDX conversion uses `LGPL-2.1-or-later`); obligations are met under the LGPL-2.1 terms either way. The earlier `LGPL-2.1-or-later` was an unverified planning assumption.
+- Exact aarch64 package releases (from debug-link names): `cyrus-sasl-lib-2.1.27-6.el8_5`, `keyutils-libs-1.5.10-9.el8`, `libxcrypt-4.1.1-6.el8`, `libcom_err-1.45.6-7.el8_10`. x86_64 package releases (CentOS 7) are not embedded; the upstream versions are.
+- Attribution (Cyrus SASL clause 4) and source-availability obligations are unchanged and listed in THIRD_PARTY_NOTICES.md. **Distribution compliance is not achieved**: local image builds remain permitted; publishing or distributing images remains prohibited until the separate compliance review.
+
+**2. Runtime database role has no access to migration metadata (amends D-054).** The application never uses `alembic_version`, but default privileges gave `aegis_app` row access to it. After every migration run, `migrations/env.py` revokes all privileges on the version table from every role except its owner, including `PUBLIC`, in the same transaction. The statement is idempotent, changes no data and no other grants, is included in offline SQL (`--sql`), and corrects existing databases on their next `alembic upgrade head`. Tests (against the disposable PostgreSQL cluster, with roles set up as in the deployment) prove that the runtime role cannot select, insert, update, delete, truncate or drop the version table, that the owner can still migrate and create tables, and that the runtime role keeps data access, but not schema access, to tables created by the owner. The container smoke test checks the same against the real roles.
+
+**3. The Valkey health-check account is authenticated (amends D-055 and D-057).** The `healthcheck` ACL user has its own generated password (`secrets/valkey_healthcheck_password`, mounted only into the valkey container) and may still run only `PING`, with no keys and no channels. The container health check sends `AUTH` and `PING` to `valkey-cli` on standard input, with the password read from the secret file by the shell's `printf` builtin, so it never appears in a command line, an environment variable or the output (`OK`, `PONG`). This is the only health check that uses a shell, inside the Valkey image; valkey-cli has no option to read a password from a file. Verified: an unauthenticated `PING` and a wrong password are refused; the authenticated user can `PING` but is refused application queues, keys, `CONFIG`, `FLUSHALL`, `ACL` and `PUBLISH`; the password is not in the container's environment, command or health log.
+
+Existing development secrets are not overwritten: `init_dev_secrets.py` adds the new password file and reports the ACL file as out of date. Delete `secrets/valkey_users.acl` (it contains only password hashes and is derived from the password files), run the script again, and recreate the valkey container.
+
+**4. Assessment worker payload visibility is recorded as a security risk.** `docs/security/SECURITY_RISKS.md` is the security risk register. Entry SR-001 records that assessment workers sharing a queue can read each other's task payloads, including other jobs' ingestion tokens, with the current mitigations, the residual risk and future remediation options (per-worker credentials and queues, out-of-band ingestion tokens, per-worker encryption, one container per job, detection). D-011 remains accurate. AEGIS does not provide per-worker task isolation; the Celery architecture is unchanged.
+
+**5. Routine health probes are not access-logged (amends D-057).** The health endpoints mark their normal results (200 and 503) as routine probes, and the request middleware logs marked requests at DEBUG instead of INFO. Requests that fail with an unexpected error are never marked and keep their ERROR level; other requests to the health paths (for example 404 or 405) keep normal logging. nginx does not write `GET`/`HEAD` probes answered with 200 or 503 to its access log. Preserved: dependency failures (`health.check_failed`, `health.check_timeout`, WARNING) and readiness transitions, logged once each (`health.not_ready` at WARNING with the unavailable dependencies, `health.ready` at INFO). Tests cover quiet probes, preserved failures and transitions, and unexpected errors in health endpoints.

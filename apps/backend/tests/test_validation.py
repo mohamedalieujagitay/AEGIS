@@ -27,8 +27,11 @@ def test_unknown_fields_are_rejected(make_app: MakeApp) -> None:
     error = response.json()["error"]
     assert error["code"] == "validation_error"
     assert error["request_id"] == response.headers[REQUEST_ID_HEADER]
-    assert {"location": ["body", "admin"], "message": "Extra inputs are not permitted",
-            "type": "extra_forbidden"} in error["details"]
+    assert {
+        "location": ["body", "admin"],
+        "message": "Extra inputs are not permitted",
+        "type": "extra_forbidden",
+    } in error["details"]
 
 
 def test_missing_and_invalid_fields_are_reported_with_locations(make_app: MakeApp) -> None:

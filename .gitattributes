@@ -47,3 +47,9 @@
 
 # Generated lock files: collapse diffs on GitHub
 package-lock.json linguist-generated=true
+
+# Vendored third-party assets: kept byte-for-byte as published (hashes in PROVENANCE.txt)
+apps/backend/app/static/swagger-ui/** -text -diff linguist-vendored
+
+# Hashed dependency lock files
+apps/backend/requirements*.lock linguist-generated=true

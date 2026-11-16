@@ -1,0 +1,59 @@
+# Development override for docker-compose.yml (DECISIONS.md D-050):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# - Development settings: API documentation at http://127.0.0.1:8000/api/docs,
+#   readable text logs.
+# - The API is also published on 127.0.0.1:8000, with live reload of
+#   apps/backend/app (mounted read-only). For frontend work, run
+#   "npm run dev" in apps/frontend: Vite proxies /api to this port.
+# - Migrations run automatically ("alembic upgrade head" only) before the API
+#   starts. Nothing is ever downgraded or dropped.
+#
+# All security settings of the base file (users, read-only filesystems,
+# capabilities, networks, secrets) stay in force.
+
+services:
+  migrate:
+    profiles: !reset []
+    environment:
+      AEGIS_ENVIRONMENT: development
+      AEGIS_LOG_FORMAT: text
+
+  backend:
+    command:
+      - uvicorn
+      - app.main:create_app
+      - --factory
+      - --host=0.0.0.0
+      - --port=8000
+      - --no-server-header
+      - --no-access-log
+      - --timeout-graceful-shutdown=20
+      - --proxy-headers
+      - --forwarded-allow-ips=${AEGIS_SUBNET_PREFIX:-10.213}.0.10
+      - --reload
+      - --reload-dir=/app/app
+    environment:
+      AEGIS_ENVIRONMENT: development
+      AEGIS_LOG_FORMAT: text
+    ports:
+      - "127.0.0.1:${AEGIS_API_PORT:-8000}:8000"
+    volumes:
+      - ./apps/backend/app:/app/app:ro
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  worker-internal:
+    environment:
+      AEGIS_ENVIRONMENT: development
+      AEGIS_LOG_FORMAT: text
+    volumes:
+      - ./apps/backend/app:/app/app:ro
+
+  worker-assessment:
+    environment:
+      AEGIS_ENVIRONMENT: development
+      AEGIS_LOG_FORMAT: text
+    volumes:
+      - ./apps/backend/app:/app/app:ro

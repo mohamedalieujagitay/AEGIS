@@ -41,9 +41,15 @@ def test_session_commits_on_success_and_rolls_back_on_error(
             session.execute(text("CREATE TABLE notes (body text NOT NULL)"))
             session.execute(text("INSERT INTO notes (body) VALUES (:body)"), {"body": "kept"})
 
-        with pytest.raises(RuntimeError), database.session() as session:
-            session.execute(text("INSERT INTO notes (body) VALUES (:body)"), {"body": "discarded"})
-            raise RuntimeError("abort")
+        def insert_then_fail() -> None:
+            with database.session() as session:
+                session.execute(
+                    text("INSERT INTO notes (body) VALUES (:body)"), {"body": "discarded"}
+                )
+                raise RuntimeError("abort")
+
+        with pytest.raises(RuntimeError, match="abort"):
+            insert_then_fail()
 
         with database.session() as session:
             rows = session.execute(text("SELECT body FROM notes")).scalars().all()

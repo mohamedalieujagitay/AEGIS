@@ -15,7 +15,8 @@ def _assert_error_envelope(body: dict[str, object], code: str, request_id: str) 
     error = body["error"]
     assert isinstance(error, dict)
     assert error["code"] == code
-    assert isinstance(error["message"], str) and error["message"]
+    assert isinstance(error["message"], str)
+    assert error["message"]
     assert error["request_id"] == request_id
 
 

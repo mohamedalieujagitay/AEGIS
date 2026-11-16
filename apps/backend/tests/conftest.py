@@ -5,8 +5,9 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from psycopg import sql
 from fastapi import APIRouter, FastAPI, Query
+from postgres_harness import PostgresServer, find_postgres_bin, temporary_postgres
+from psycopg import sql
 from pydantic import Field
 
 from app.api import v1
@@ -14,7 +15,6 @@ from app.core.config import Environment, Settings, get_settings
 from app.core.errors import AppError
 from app.main import create_app
 from app.schemas.base import RequestModel
-from postgres_harness import PostgresServer, find_postgres_bin, temporary_postgres
 
 
 @pytest.fixture(autouse=True)
@@ -79,12 +79,28 @@ def make_app(monkeypatch: pytest.MonkeyPatch) -> Callable[..., FastAPI]:
     return factory
 
 
+# Read once at import, before the autouse fixture above removes AEGIS_*
+# variables from each test's environment. CI sets it to 1, so database tests
+# fail instead of being skipped when PostgreSQL is missing.
+REQUIRE_POSTGRES = os.environ.get("AEGIS_TEST_REQUIRE_POSTGRES") == "1"
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Mark every test that uses the PostgreSQL server with ``database``."""
+    for item in items:
+        if "postgres_server" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.database)
+
+
 @pytest.fixture(scope="session")
 def postgres_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PostgresServer]:
     """A disposable PostgreSQL server for the whole test session."""
     bin_dir = find_postgres_bin()
     if bin_dir is None:
-        pytest.skip("PostgreSQL binaries not found; set AEGIS_TEST_POSTGRES_BIN to run database tests")
+        message = "PostgreSQL binaries not found; set AEGIS_TEST_POSTGRES_BIN to run database tests"
+        if REQUIRE_POSTGRES:
+            pytest.fail(f"{message} (required because AEGIS_TEST_REQUIRE_POSTGRES=1)")
+        pytest.skip(message)
     with temporary_postgres(bin_dir, tmp_path_factory.mktemp("postgres")) as server:
         yield server
 

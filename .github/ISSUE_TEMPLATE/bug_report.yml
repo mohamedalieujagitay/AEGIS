@@ -1,0 +1,61 @@
+name: Bug report
+description: Report incorrect behaviour in AEGIS. Do not use this form for security vulnerabilities.
+title: "fix: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security vulnerabilities must be reported privately**, through the repository's Security tab. Do not include vulnerability details here.
+
+        Never include secrets, credentials, session tokens or data about systems you are not authorized to assess.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use a local, controlled environment.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "0.1.0 or a commit hash"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Backend API
+        - Frontend
+        - Database or migrations
+        - Workers
+        - Deployment or infrastructure
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, browser, Python and Node.js versions, deployment method.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove secrets, tokens, hostnames and IP addresses before pasting.
+      render: text

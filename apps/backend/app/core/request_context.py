@@ -7,6 +7,12 @@ characters, so it cannot be used to inject content into logs.
 
 Each request is logged once, without its query string or body, because
 those can carry secrets (for example tokens in URLs).
+
+Routine health probes are logged at DEBUG instead of INFO, so container and
+orchestrator checks every few seconds do not flood the logs (DECISIONS.md
+D-060). A handler opts in by calling ``mark_routine_probe`` just before it
+returns a normal result; requests that fail with an unexpected error are
+never marked and keep their ERROR level.
 """
 
 import logging
@@ -26,6 +32,28 @@ request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 """Request ID of the request being handled in the current context, if any."""
 
 logger = logging.getLogger("app.request")
+
+ROUTINE_PROBE_STATE = "routine_probe"
+"""Request state flag set by health endpoints for their normal results."""
+
+ROUTINE_PROBE_STATUSES = frozenset({200, 503})
+"""Statuses a marked probe may return and still be logged at DEBUG."""
+
+
+def mark_routine_probe(state: object) -> None:
+    """Mark the current request as a routine health probe (logged at DEBUG).
+
+    ``state`` is ``request.state``; Starlette stores its attributes in the
+    request scope, where the middleware reads them after the response.
+    """
+    setattr(state, ROUTINE_PROBE_STATE, True)
+
+
+def _log_level(scope: Scope, status_code: int) -> int:
+    state = scope.get("state", {})
+    if state.get(ROUTINE_PROBE_STATE) is True and status_code in ROUTINE_PROBE_STATUSES:
+        return logging.DEBUG
+    return logging.ERROR if status_code >= 500 else logging.INFO
 
 
 def _resolve_request_id(scope: Scope) -> str:
@@ -70,7 +98,7 @@ class RequestContextMiddleware:
         finally:
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             logger.log(
-                logging.ERROR if status_code >= 500 else logging.INFO,
+                _log_level(scope, status_code),
                 "%s %s %s",
                 scope["method"],
                 scope["path"],

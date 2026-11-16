@@ -38,7 +38,7 @@ def find_postgres_bin() -> Path | None:
     if initdb:
         return Path(initdb).parent
     if sys.platform == "win32":
-        root = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "PostgreSQL"
+        root = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "PostgreSQL"
         candidates = [
             path
             for path in root.glob("*/bin")
@@ -64,10 +64,13 @@ def _run(arguments: list[str], log_file: Path | None = None) -> None:
     for them would never finish. Its own log is reported on failure instead.
     """
     if log_file is None:
-        captured = subprocess.run(arguments, capture_output=True, text=True, check=False)
+        # Fixed argument lists built by this module, never a shell (S603).
+        captured = subprocess.run(  # noqa: S603
+            arguments, capture_output=True, text=True, check=False
+        )
         returncode, detail = captured.returncode, captured.stderr.strip()
     else:
-        returncode = subprocess.run(
+        returncode = subprocess.run(  # noqa: S603
             arguments,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -92,8 +95,21 @@ def temporary_postgres(bin_dir: Path, data_root: Path) -> Iterator[PostgresServe
     initdb = str(bin_dir / f"initdb{suffix}")
     pg_ctl = str(bin_dir / f"pg_ctl{suffix}")
 
-    _run([initdb, "-D", str(data_dir), "-U", TEST_DATABASE_USER, "-A", "trust",
-          "-E", "UTF8", "--no-locale", "--no-instructions"])
+    _run(
+        [
+            initdb,
+            "-D",
+            str(data_dir),
+            "-U",
+            TEST_DATABASE_USER,
+            "-A",
+            "trust",
+            "-E",
+            "UTF8",
+            "--no-locale",
+            "--no-instructions",
+        ]
+    )
     # The local socket goes in the temporary directory (-k), so no shared
     # system directory is used and no shell quoting is needed on any platform.
     options = (

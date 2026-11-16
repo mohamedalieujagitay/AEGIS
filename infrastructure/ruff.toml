@@ -1,0 +1,7 @@
+# Ruff settings for the infrastructure scripts: the backend's rules
+# (apps/backend/pyproject.toml), except that these command-line tools print
+# their results.
+extend = "../apps/backend/pyproject.toml"
+
+[lint.per-file-ignores]
+"scripts/*.py" = ["T201"]

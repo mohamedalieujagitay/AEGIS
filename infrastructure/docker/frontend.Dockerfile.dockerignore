@@ -1,0 +1,17 @@
+# Build context allowlist for frontend.Dockerfile (context: repository root).
+*
+!apps/frontend/package.json
+!apps/frontend/package-lock.json
+!apps/frontend/index.html
+!apps/frontend/vite.config.ts
+!apps/frontend/tsconfig.json
+!apps/frontend/tsconfig.app.json
+!apps/frontend/tsconfig.node.json
+!apps/frontend/tsconfig.test.json
+!apps/frontend/src
+!infrastructure/docker/nginx
+
+**/node_modules
+**/dist
+**/.env
+**/.env.*

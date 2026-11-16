@@ -5,7 +5,7 @@
 **Document:** System Architecture  
 **Version:** 1.1  
 **Status:** Approved  
-**Last Updated:** 2026-11-15  
+**Last Updated:** 2026-11-16  
 **Related:** [PROJECT_VISION.md](../PROJECT_VISION.md) · [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md) · [DEVELOPMENT_ROADMAP.md](../development/DEVELOPMENT_ROADMAP.md) · [DECISIONS.md](DECISIONS.md)  
 **Target Release:** v0.1.0
 
@@ -97,9 +97,9 @@ Internal workers (§6.1) are trusted backend components that handle tasks such a
 
 **Routing:** React Router 8
 
-**Package Manager:** npm, with Node.js 22.22.0 or later
+**Package Manager:** npm, with Node.js 22.22.2 or later (development and CI baseline 22.23.5, in `apps/frontend/.nvmrc`)
 
-See DECISIONS.md D-021 to D-026. The data-fetching library will be decided later.
+See DECISIONS.md D-021 to D-026 and D-047. The data-fetching library will be decided later.
 
 Responsibilities:
 
@@ -291,9 +291,10 @@ C:\AEGIS (repository root)
 │   ├── backend/         # FastAPI application and both worker roles
 │   └── frontend/        # React application
 ├── docs/
-├── infrastructure/      # Docker and operational scripts
+├── infrastructure/      # Dockerfiles, service configuration and operational scripts
 ├── tests/               # Playwright end-to-end tests
-└── docker-compose.yml
+├── docker-compose.yml   # secure, production-like base (project "aegis")
+└── docker-compose.dev.yml  # development override
 ```
 
 There is no top-level `workers/` or `packages/` directory. Workers are part of the backend codebase, and a shared package directory will be introduced only when a genuine shared package exists.
@@ -424,7 +425,7 @@ Worker-side packages must not import:
 
 Enforcement:
 
-1. **Static:** import-linter "forbidden" contracts, configured in `pyproject.toml` and run in CI. A violation fails the build.
+1. **Static:** import-linter "forbidden" contracts, configured in `apps/backend/pyproject.toml` and run in CI (`lint-imports`). A violation fails the build. Direct and indirect imports are both checked (DECISIONS.md D-048).
 2. **Runtime:** assessment worker containers receive no database credentials and are not attached to the `data` network (§12.2).
 
 Both worker roles use the same container image with a different command. The image therefore contains the database driver code, which is why the static contract and the absence of credentials and network access are used together.
@@ -642,7 +643,7 @@ Limitation: a compromised assessment worker could submit fabricated, in-scope re
 - The scope snapshot check prevents injecting out-of-scope data.
 - All submissions are audit-logged.
 
-Per-worker queue isolation and credentials are possible future work.
+Per-worker queue isolation and credentials are possible future work. AEGIS does not provide per-worker task isolation; the limitation, its mitigations and remediation options are tracked as SR-001 in [docs/security/SECURITY_RISKS.md](../security/SECURITY_RISKS.md).
 
 ## 6.6 Worker Container Hardening
 
@@ -659,7 +660,7 @@ Valkey access:
 
 - Separate ACL users for the backend, assessment workers and internal workers.
 - Workers are denied administrative and dangerous commands (for example `CONFIG`, `FLUSHALL`, `FLUSHDB`, `KEYS`, `DEBUG`, `MODULE`).
-- Key patterns restrict each role to its own queues where Celery's key layout allows. The exact patterns are validated during Phase 01 implementation.
+- Key patterns restrict each role to its own queues. Validated in Phase 01.5 against Celery 5.7 and Valkey 9.1: each role uses its own exchange, queues and unacknowledged-message keys (`internal.*`, `assessment.*`, `_kombu.binding[_permanent].<role>`), and remote control, events and Pub/Sub are disabled. The ACL rules are listed in DECISIONS.md D-055.
 
 ---
 
@@ -918,23 +919,31 @@ Assessment workers communicate with the backend only through the internal ingest
 
 ## 12.1 Docker Services
 
-The initial environment will contain:
+Docker Compose project `aegis` (DECISIONS.md D-050 to D-055):
 
 ```text
 AEGIS
  |
- +-- frontend
+ +-- frontend            (nginx: built application, same-origin /api proxy; 127.0.0.1:8080)
  |
- +-- backend             (public API + internal ingestion listener)
+ +-- backend             (public API; internal ingestion listener in a later phase)
  |
- +-- postgres
+ +-- migrate             (one-shot: alembic upgrade head, as the schema owner)
  |
- +-- valkey
+ +-- postgres            (PostgreSQL 18)
+ |
+ +-- valkey              (Valkey 9, ACL users per role)
  |
  +-- worker-assessment   (untrusted role)
  |
  +-- worker-internal     (trusted role)
 ```
+
+- One backend image runs the API, the migration job and both worker roles; the frontend image serves the built application with unprivileged nginx (D-051). Images are built locally only and are not distributed (D-059).
+- Every container runs as a non-root user with a read-only root filesystem, no Linux capabilities, `no-new-privileges`, CPU, memory and process limits, and no Docker socket (D-052). This applies to PostgreSQL and Valkey as well.
+- Only the frontend is published, on `127.0.0.1`. The development override (`docker-compose.dev.yml`) also publishes the API on `127.0.0.1:8000` and runs migrations automatically.
+- Startup order uses health conditions: postgres healthy, then migrations (development), then the backend healthy (readiness), then the frontend. Both workers wait for a healthy Valkey; only the internal worker also waits for PostgreSQL.
+- PostgreSQL roles (D-054): `aegis_owner` owns the schema and is used only for migrations; `aegis_app`, used by the API and the internal worker, can only read and change rows. The superuser cannot connect over the network.
 
 ## 12.2 Network Segmentation and Egress Controls
 
@@ -948,7 +957,9 @@ AEGIS
 | `ingest` | Yes | backend (ingestion listener), worker-assessment | Result submission |
 | `egress` | No | worker-assessment only | Outbound assessment traffic |
 
-Subnets for all AEGIS networks are set explicitly in Compose so they can be added to the denylist.
+Subnets for all AEGIS networks are set explicitly in Compose so they can be added to the denylist: `<prefix>.0.0/24` (edge) to `<prefix>.4.0/24` (egress), with `AEGIS_SUBNET_PREFIX` defaulting to `10.213`. The frontend has the fixed address `<prefix>.0.10`; the backend trusts forwarding headers only from it.
+
+Implemented in `docker-compose.yml` and verified on the running containers (D-058): the assessment worker cannot resolve or connect to PostgreSQL, receives no database credentials, and its Valkey user cannot access the internal namespace.
 
 ### What Docker Compose cannot do
 
@@ -1003,9 +1014,23 @@ Provide:
 - Development configuration.
 - Production configuration guidance.
 
+Implementation (DECISIONS.md D-053):
+
+- Secrets are files: `infrastructure/scripts/init_dev_secrets.py` generates them in the gitignored `secrets/` directory without ever overwriting an existing file. Compose mounts each one only into the containers that need it, at `/run/secrets`, and the backend reads them when `AEGIS_SECRETS_DIR` is set. The Valkey ACL file stores password hashes only.
+- Non-secret settings are set per service in `docker-compose.yml`; Compose options are documented in the root `.env.example`, and the backend's variables for running outside Docker in `apps/backend/.env.example`.
+- Production guidance: use `docker-compose.yml` alone, provide operator-managed secret files, run migrations explicitly (`docker compose --profile migrate run --rm migrate`) after a backup, terminate TLS in front of the frontend, and enable PostgreSQL SSL (`verify-full`) and Valkey TLS if those services are reached over an untrusted network.
+
 ## 12.4 Health Checks
 
 Services must expose appropriate health checks.
+
+Implementation (DECISIONS.md D-057):
+
+- `GET /api/v1/health/live`: the API process is serving; no dependency is checked.
+- `GET /api/v1/health/ready`: PostgreSQL and Valkey are reachable; otherwise 503 in the standard error format, naming the unavailable dependencies only. Each check is time-limited (2 s by default), results are shared by concurrent requests for 1 s, and pooled connections are reused.
+- Worker availability: each worker touches a heartbeat file while connected to Valkey; its container health check fails when the file is stale.
+- Every container has a Docker health check (the database, broker and frontend checks use the services' own tools; the backend and worker checks are Python modules). The Valkey check authenticates as the PING-only `healthcheck` user; it is the only check that uses a shell, so its password can be piped to `valkey-cli` from the secret file without appearing in a command line, environment variable or output (D-060).
+- Routine liveness and readiness probes are logged at DEBUG by the API and not written to the nginx access log; dependency failures and readiness changes are still logged (D-060).
 
 The system must distinguish:
 
@@ -1088,6 +1113,8 @@ Test categories:
 - Import-boundary contract checks.
 - Scope-escape and SSRF tests (DNS rebinding, redirects, denylisted addresses).
 
+Configuration is in `apps/backend/pyproject.toml` (DECISIONS.md D-045). Tests live in `apps/backend/tests/`. Database tests run against a disposable PostgreSQL cluster created by the test harness, never an existing database (D-044), and are marked `database` automatically.
+
 ## 14.2 Frontend Testing
 
 Use Vitest and React Testing Library.
@@ -1100,6 +1127,8 @@ Test:
 - API interactions.
 - Navigation.
 - Error states.
+
+Vitest reuses the Vite configuration and runs in jsdom, with React Testing Library, user-event and jest-dom. Tests live next to the code as `src/**/*.test.ts(x)` and are type-checked and linted like application code (DECISIONS.md D-047).
 
 ## 14.3 End-to-End Testing
 
@@ -1123,14 +1152,42 @@ Never perform automated security tests against systems without authorization.
 
 ## 14.5 Continuous Integration
 
-GitHub Actions runs on every pull request:
+GitHub Actions runs on every pull request and every push to `main` (and on manual dispatch):
 
 - Linting and formatting checks.
 - Type checking.
 - Import-boundary contracts (§4.5).
 - Backend and frontend tests.
+- Container image builds and the container smoke test.
 
-Frontend: `tsc` (type checking), Oxlint with type-aware rules (linting) and Prettier (formatting); see DECISIONS.md D-033. The backend lint and type-check tools are selected during Phase 01.6.
+The workflow is `.github/workflows/ci.yml` (DECISIONS.md D-048, D-058). It has three independent jobs on `ubuntu-24.04`:
+
+**Backend (Python 3.11)**, in `apps/backend`:
+
+| Step | What runs |
+|---|---|
+| PostgreSQL | PostgreSQL 18 server binaries installed from the PostgreSQL project's signed apt repository; no cluster or service is created |
+| Dependencies | `pip install --require-hashes -r requirements-dev.lock` (every file hash-checked, D-046), `pip install --no-deps -e .`, `pip check` |
+| Linting and formatting | `ruff check`, `ruff format --check` (D-045) |
+| Type checking | `mypy` in strict mode |
+| Infrastructure scripts | `ruff check`, `ruff format --check` and `mypy --strict` on `infrastructure/scripts/` |
+| Import boundaries | `lint-imports` (§4.5) |
+| Tests | `pytest` with `AEGIS_TEST_REQUIRE_POSTGRES=1`: the database tests run against a disposable cluster created by the test harness on 127.0.0.1 inside the runner (D-044), and a missing PostgreSQL fails the job instead of skipping them |
+
+**Frontend (Node.js)**, in `apps/frontend`, with the Node.js version from `.nvmrc`:
+
+| Step | What runs |
+|---|---|
+| Dependencies | `npm ci` from `package-lock.json` |
+| Type checking | `npm run typecheck` (`tsc -b`, including the test files) |
+| Linting | `npm run lint` (Oxlint with type-aware rules, D-033) |
+| Formatting | `npm run format:check` (Prettier) |
+| Tests | `npm test` (Vitest, D-047) |
+| Build | `npm run build` (production build) |
+
+**Containers (build and smoke test)**: `python3 infrastructure/scripts/smoke_test.py --build` builds the backend and frontend images from the hash-checked `requirements.lock` and `package-lock.json`, starts the production-like stack as the separate Compose project `aegis-smoke` with temporary secrets, and checks service health, the frontend proxy and health endpoints, PostgreSQL role restrictions, Valkey authentication and ACLs, worker isolation, task routing, container security settings and graceful shutdown (D-058). Images are never pushed or uploaded (D-059).
+
+Both workflows run with a read-only token (`contents: read`), use no secrets, trigger on `pull_request` (never `pull_request_target`), pin every action to a full commit hash, have job timeouts and cancel superseded runs. A separate workflow (`pr-title.yml`) checks that pull request titles follow Conventional Commits (D-049). Not covered by CI: a vulnerability scan of the container images' operating-system packages, and `pip-audit`/`npm audit` (run locally before releases).
 
 ---
 

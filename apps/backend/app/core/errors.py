@@ -13,6 +13,7 @@ rejected in production (``app.core.config.Settings``).
 import logging
 from collections.abc import Mapping
 from http import HTTPStatus
+from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -85,31 +86,36 @@ def _status_code_name(status_code: int) -> tuple[str, str]:
     return status.phrase.lower().replace(" ", "_").replace("-", "_"), f"{status.phrase}."
 
 
+# FastAPI calls each handler below only for the exception type it is
+# registered for (see ``register_exception_handlers``), so ``cast`` only
+# narrows the declared ``Exception`` parameter for the type checker.
+
+
 async def _handle_app_error(request: Request, exc: Exception) -> JSONResponse:
-    assert isinstance(exc, AppError)
-    return error_response(request, exc.status_code, exc.code, exc.message)
+    error = cast(AppError, exc)
+    return error_response(request, error.status_code, error.code, error.message)
 
 
 async def _handle_http_exception(request: Request, exc: Exception) -> JSONResponse:
     # Framework errors such as 404 and 405. The standard reason phrase is used
     # instead of the exception detail, which may contain developer text.
-    assert isinstance(exc, StarletteHTTPException)
-    code, message = _status_code_name(exc.status_code)
-    return error_response(request, exc.status_code, code, message, headers=exc.headers)
+    error = cast(StarletteHTTPException, exc)
+    code, message = _status_code_name(error.status_code)
+    return error_response(request, error.status_code, code, message, headers=error.headers)
 
 
 async def _handle_validation_error(request: Request, exc: Exception) -> JSONResponse:
     # Only the location, message and type of each error are returned. The
     # submitted input and validation context are dropped, because they can
     # contain sensitive values such as passwords.
-    assert isinstance(exc, RequestValidationError)
+    error_list = cast(RequestValidationError, exc).errors()
     details = [
         ErrorDetail(
             location=[part for part in error.get("loc", ()) if isinstance(part, str | int)],
             message=str(error.get("msg", "Invalid value.")),
             type=str(error.get("type", "value_error")),
         )
-        for error in exc.errors()
+        for error in error_list
     ]
     return error_response(
         request,

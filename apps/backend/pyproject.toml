@@ -17,13 +17,28 @@ dependencies = [
   # Binary distribution bundles libpq, so no system PostgreSQL client is needed.
   "psycopg[binary]>=3.3.9,<3.4",
   "alembic>=1.20.1,<1.21",
+  # Task queue; Valkey is reached through kombu's Redis transport (D-055).
+  "celery[redis]>=5.7.0,<5.8",
+  # Protocol client for Valkey (MIT), also used by the readiness check.
+  "redis>=8.1.0,<9",
 ]
 
 [project.optional-dependencies]
+# Exact versions are pinned, with hashes, in requirements.lock (runtime, used
+# by the container image) and requirements-dev.lock (development and CI), both
+# generated from these ranges by pip-tools. After changing any dependency
+# here, regenerate BOTH locks (commands in CONTRIBUTING.md section 2).
 dev = [
   "pytest>=9.2.0,<10",
   # Required by the FastAPI/Starlette TestClient (Starlette 1.10 deprecates httpx).
   "httpx2>=2.16.0,<3",
+  "ruff>=0.17.5,<0.18",
+  "mypy>=2.4.1,<2.5",
+  "import-linter>=2.16,<2.17",
+]
+# Only needed to regenerate the lock files; not part of either lock.
+lock = [
+  "pip-tools>=7.7.0,<7.8",
 ]
 
 [tool.setuptools.dynamic]
@@ -32,7 +47,87 @@ version = { attr = "app.__version__" }
 [tool.setuptools.packages.find]
 include = ["app*"]
 
-# Minimal test discovery settings. Full Pytest configuration is roadmap task 1.6.
+[tool.setuptools.package-data]
+# Vendored Swagger UI assets and their licence files (D-056).
+app = ["static/swagger-ui/*"]
+
 [tool.pytest.ini_options]
+minversion = "9.2"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# -ra: summarize skipped and failed tests. Unknown markers and configuration
+# keys are errors, and an unexpectedly passing xfail test fails the run.
+addopts = "-ra --strict-markers --strict-config"
+xfail_strict = true
+# Warnings are errors, so deprecations are fixed when they appear.
+filterwarnings = ["error"]
+markers = [
+  "database: uses the disposable PostgreSQL server (applied automatically by conftest.py)",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["migrations/script.py.mako"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # Pyflakes
+  "I",    # import sorting
+  "B",    # flake8-bugbear
+  "UP",   # pyupgrade (Python 3.11 syntax)
+  "SIM",  # flake8-simplify
+  "S",    # flake8-bandit (security)
+  "C4",   # flake8-comprehensions
+  "RUF",  # Ruff-specific rules
+  "PT",   # flake8-pytest-style
+  "DTZ",  # timezone-aware datetimes
+  "T20",  # no print statements
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use plain asserts and fixed, non-secret placeholder passwords.
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency and parameter declarations are evaluated once, by design.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["app", "migrations", "tests"]
+# The tests import their local helper module (tests/postgres_harness.py).
+mypy_path = "tests"
+
+[[tool.mypy.overrides]]
+# Celery and its messaging libraries ship no type information.
+module = ["celery", "celery.*", "kombu", "kombu.*"]
+ignore_missing_imports = true
+
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Worker-side code must not import database code (SYSTEM_ARCHITECTURE 4.5)"
+type = "forbidden"
+source_modules = [
+  "app.workers.assessment",
+  "app.netguard",
+  "app.contracts",
+  "app.modules.*.engine",
+]
+forbidden_modules = [
+  "app.database",
+  "app.models",
+  "app.services",
+  "app.api",
+  "sqlalchemy",
+  "psycopg",
+  "alembic",
+]

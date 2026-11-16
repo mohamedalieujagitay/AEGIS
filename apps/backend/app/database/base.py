@@ -34,7 +34,8 @@ class Base(DeclarativeBase):
     """Base class for all ORM models."""
 
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
-    type_annotation_map = {
+    # SQLAlchemy reads this class attribute by name; it is never mutated.
+    type_annotation_map = {  # noqa: RUF012
         datetime: DateTime(timezone=True),
         uuid.UUID: Uuid(as_uuid=True),
     }
@@ -50,6 +51,4 @@ class TimestampMixin:
     """Creation and last-update times, set by the database in UTC."""
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
-    )
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
