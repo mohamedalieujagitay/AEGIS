@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import {
   administratorApi,
   createAccount,
@@ -93,7 +93,69 @@ test.describe('protected routes', () => {
   }
 })
 
+/*
+ * Diagnostics for a failed registration test, written to the job log. Only the
+ * status of the options request, a boolean, the URL path, whether the form is
+ * shown, the application's own alert text and the first line of the failure are
+ * printed. Never a password, email address, cookie, token or CSRF value.
+ */
+let optionsReport = 'not requested'
+
+function recordOptionsRequest(page: Page): void {
+  optionsReport = 'not requested'
+  page.on('response', (response) => {
+    if (!new URL(response.url()).pathname.endsWith('/api/v1/auth/options')) {
+      return
+    }
+    optionsReport = `status ${response.status()}`
+    response.json().then(
+      (body: unknown) => {
+        const enabled =
+          typeof body === 'object' && body !== null && 'registration_enabled' in body
+            ? String(body.registration_enabled)
+            : 'missing'
+        optionsReport += `, registration_enabled ${enabled}`
+      },
+      () => {
+        optionsReport += ', body unreadable'
+      },
+    )
+  })
+}
+
+async function reportRegistrationFailure(page: Page, testInfo: TestInfo): Promise<void> {
+  if (testInfo.status === 'passed') {
+    return
+  }
+  const formShown = (await page.getByRole('button', { name: 'Create account' }).count()) > 0
+  const alerts = await page.getByRole('alert').allInnerTexts()
+  const failure = testInfo.error?.message ?? ''
+  const waiting = failure
+    .split('\n')
+    .filter((line) => line.includes('waiting for'))
+    .slice(0, 3)
+  const lines = [
+    `[registration diagnostics] ${testInfo.title}`,
+    `  test status: ${testInfo.status}`,
+    `  failure: ${failure.split('\n')[0] ?? 'none'}`,
+    ...waiting.map((line) => `  ${line.trim()}`),
+    `  /auth/options: ${optionsReport}`,
+    `  current path: ${new URL(page.url()).pathname}`,
+    `  registration form shown: ${formShown}`,
+    `  visible alerts: ${alerts.length > 0 ? alerts.join(' | ') : 'none'}`,
+  ]
+  process.stdout.write(`${lines.join('\n')}\n`)
+}
+
 test.describe('registration', () => {
+  test.beforeEach(({ page }) => {
+    recordOptionsRequest(page)
+  })
+
+  test.afterEach(async ({ page }, testInfo) => {
+    await reportRegistrationFailure(page, testInfo)
+  })
+
   test('registration is closed by default: the page says so and offers no account', async ({
     page,
     baseURL,
