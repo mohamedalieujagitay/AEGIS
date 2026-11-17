@@ -94,7 +94,7 @@ Platform notes:
 - Hashes are recorded for every published wheel and source distribution of each pinned version, so the same lock installs on Windows, Linux x86-64 and Linux ARM64. The container image installs with `--only-binary=:all:`, so every runtime dependency must publish Linux wheels.
 - Regeneration is reproducible: running the commands again without changing `pyproject.toml` produces identical files.
 
-Configuration comes from `AEGIS_*` environment variables. For local development, copy `apps/backend/.env.example` to `apps/backend/.env`. Never commit `.env` files. Without configuration the backend runs as `production` with debug mode and API documentation off. With `AEGIS_ENVIRONMENT=development`, Swagger UI is available at `http://127.0.0.1:8000/api/docs`.
+Configuration comes from `AEGIS_*` environment variables. For local development, copy `apps/backend/.env.example` to `apps/backend/.env`. Never commit `.env` files. Without configuration the backend runs as `production` with debug mode and API documentation off. With `AEGIS_ENVIRONMENT=development`, Swagger UI is available at `http://127.0.0.1:8000/api/docs` to a signed-in instance administrator; everyone else gets 401 or 403 (DECISIONS.md D-069).
 
 Database (PostgreSQL), from `apps/backend` with the virtual environment activated:
 
@@ -145,18 +145,33 @@ python infrastructure/scripts/init_dev_secrets.py                        # once:
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build   # start everything
 ```
 
-- Application: http://127.0.0.1:8080. API documentation: http://127.0.0.1:8000/api/docs. Health: http://127.0.0.1:8080/api/v1/health/ready.
+- Application: http://127.0.0.1:8080. API documentation (sign in as an instance administrator first): http://127.0.0.1:8000/api/docs. Health: http://127.0.0.1:8080/api/v1/health/ready.
 - The development override mounts `apps/backend/app` read-only and reloads the API on changes. Restart the workers to pick up worker changes: `docker compose -f docker-compose.yml -f docker-compose.dev.yml restart worker-internal worker-assessment`.
 - For frontend work, run `npm run dev` in `apps/frontend` while the stack runs: Vite proxies `/api` to the API on port 8000.
 - Migrations run automatically before the API starts (`alembic upgrade head` only). Nothing is ever downgraded or dropped. To start again from an empty database, stop the stack and remove its volumes yourself: `docker compose -f docker-compose.yml -f docker-compose.dev.yml down --volumes` deletes all local AEGIS data.
 - PostgreSQL and Valkey have no host ports. Inspect them through their containers, for example `docker compose exec postgres psql --username=postgres --dbname=aegis`.
 - Optional settings (ports, subnets, log level, worker concurrency) are in `.env.example`; copy it to `.env` in the repository root to change them. Change `AEGIS_SUBNET_PREFIX` if the default `10.213.x.0/24` networks overlap with networks you use.
 
+Accounts (DECISIONS.md D-061). AEGIS ships no default account. Create the first instance administrator with the CLI in the API container; the password is asked for twice and never shown:
+
+```bash
+docker compose exec backend python -m app.cli create-admin --email you@example.com --username admin
+```
+
+- Other commands: `create-user`, `reset-password --email …` (signs out every session of the user), `registration show|enable|disable` (open registration is off by default) and `purge-expired`. Passwords are never command-line arguments; for scripts, pass `--password-stdin` and write the password to standard input.
+- Sign in at http://127.0.0.1:8080 (or http://localhost:8080). The session and CSRF cookies are `Secure` with the `__Host-` prefix even locally: browsers accept them from `127.0.0.1` and `localhost` over plain HTTP. Use one of those two addresses, or set `AEGIS_ALLOWED_ORIGINS` and serve AEGIS over HTTPS.
+- Forgotten password: an instance administrator creates a one-time reset link in Settings → Security, or uses `reset-password` in the CLI.
+- Sign-out ends the session but not the browser's trust: a trusted browser keeps its exemption from the account-wide sign-in delay until it expires, its owner revokes it, or the password changes (D-070).
+- Repeated failed sign-ins are slowed down (D-066). The counters are in Valkey and expire after 15 minutes.
+
 Secrets:
 
 - `init_dev_secrets.py` never overwrites an existing file. Never commit `secrets/`, and never put passwords in `.env` or `docker-compose.yml`.
 - If the script reports that `secrets/valkey_users.acl` is out of date or does not match the password files (for example after an update adds a new Valkey user, such as `healthcheck`), delete that file, run the script again, and recreate Valkey: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate valkey`. The passwords are kept.
 - Docker mounts each secret file by reference: after replacing a secret file, recreate the containers that use it.
+- `secrets/aegis_secret_key` is the API's server secret (CSRF tokens and rate-limit counter names, D-065). The script creates it if it is missing. Replacing it invalidates every CSRF token (users reload the page); sessions are unaffected.
+
+Updating an existing development environment to authentication (roadmap 2.1), once: run `python infrastructure/scripts/init_dev_secrets.py` (it creates `aegis_secret_key` and reports the ACL file as out of date because the API's Valkey user gains rate-limit permissions); delete `secrets/valkey_users.acl`, run the script again, then rebuild and recreate the stack with `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --force-recreate`. Passwords, database data and volumes are kept; the migration runs automatically.
 
 Container smoke test (also run in CI):
 
@@ -196,7 +211,7 @@ AEGIS/
 ├── infrastructure/
 │   ├── docker/           # Dockerfiles, nginx, Valkey and PostgreSQL configuration
 │   └── scripts/          # init_dev_secrets.py, smoke_test.py
-├── tests/                # End-to-end tests (Playwright)
+├── tests/                # Reserved for cross-application tests (D-014); Playwright tests are in apps/frontend/e2e (D-073)
 ├── .env.example          # optional Docker Compose settings
 ├── docker-compose.yml    # secure, production-like base
 ├── docker-compose.dev.yml  # development override
@@ -347,7 +362,13 @@ Recommended repository settings (merge method, branch protection and Actions per
 | Frontend component, form and routing tests | Vitest, React Testing Library, user-event, jest-dom | `apps/frontend/src/**/*.test.ts(x)`, next to the code | `npm test` in `apps/frontend` |
 
 - Backend: tests that need PostgreSQL are marked `database` automatically. `pytest -m "not database"` runs only the fast tests. Warnings fail the run, so fix deprecations when they appear.
-- Frontend: test behaviour as users experience it. Query by role, label and accessible name, use `userEvent` for interaction, and render pages through the real route configuration with a memory router. Test files are type-checked and linted like application code.
+- Backend authentication tests: use `AegisTestClient` from `tests/helpers.py`. It talks HTTPS (so `Secure` cookies are kept) and adds a valid CSRF token to state-changing requests, as the browser does; pass `auto_csrf=False` to test CSRF failures. The `auth_app` fixture is the real application on a migrated database with in-memory rate-limit counters, and the `clock` fixture controls time for expiry tests.
+- Backend rate-limit tests against a real Valkey server are skipped unless one is provided: start a disposable one (`docker run --rm -p 127.0.0.1:16390:6379 valkey/valkey:9.1.3-alpine`) and set `AEGIS_TEST_VALKEY_HOST=127.0.0.1` and `AEGIS_TEST_VALKEY_PORT=16390`. The server must hold no data you need: the tests flush database 9.
+- End-to-end tests (Playwright) change their deployment (they create accounts, revoke devices and deactivate an account), so they run only against a disposable stack. The complete run, which builds the images, starts the production-like stack through nginx, PostgreSQL and Valkey, and runs the browser suite against it, is `python infrastructure/scripts/smoke_test.py --build --e2e`. It needs Node.js, the frontend dependencies (`npm ci` in `apps/frontend`) and Chromium (`npx playwright install chromium`). The script removes only its own project's containers, networks and volumes (`aegis-smoke`).
+- To run the suite against a stack you started yourself, set `AEGIS_E2E_BASE_URL`, `AEGIS_E2E_ADMIN_EMAIL`, `AEGIS_E2E_ADMIN_PASSWORD`, and for the database and service steps `AEGIS_E2E_COMPOSE_PROJECT` (a Compose project other than `aegis`, which the tests refuse) and `AEGIS_E2E_COMPOSE_FILE` (the absolute path of `docker-compose.yml`). Then run `npm run e2e` in `apps/frontend`. Without the two Compose variables, the scenarios that need a database or service step are skipped, and accounts are created through public registration, which allows five attempts per address per hour (DECISIONS.md D-073).
+- Test output never contains passwords or tokens: they are passed on standard input or in the request body, and the smoke test replaces the administrator's password in the browser output before printing it.
+- Continuous integration runs the browser suite in the Containers job (Node.js from `.nvmrc`, Chromium, `smoke_test.py --build --e2e`). A failed browser test fails the job. The integration was checked locally; the first remote run must be observed before it is treated as passing (DECISIONS.md D-073).
+- Frontend: test behaviour as users experience it. Query by role, label and accessible name, use `userEvent` for interaction, and render pages through the real route configuration with a memory router. Test files are type-checked and linted like application code. Mock the API with `mockApi` from `src/test/apiMock.ts`; it replaces `fetch` for the test only.
 
 Rules that apply to all tests:
 
@@ -360,7 +381,7 @@ Rules that apply to all tests:
 
 | Test type | Tool | Location | Roadmap task |
 |---|---|---|---|
-| End-to-end workflow tests | Playwright | `tests/` | Introduced with the first complete user workflows |
+| End-to-end workflow tests (authentication and trusted devices) | Playwright | `apps/frontend/e2e/` | `python infrastructure/scripts/smoke_test.py --build --e2e`; run by the Containers CI job |
 
 Security-sensitive features must include tests for the failure path as well. For example, scope enforcement must be tested with out-of-scope targets, DNS rebinding, redirects and denylisted addresses.
 

@@ -14,7 +14,7 @@ This document is the dependency licensing register for AEGIS. It records each pl
 | **Approved** | Reviewed and accepted for inclusion in a release. |
 | **Deferred** | Not approved for the current release. Requires separate evaluation. |
 
-**Completed licence reviews:** psycopg 3.3.9 for Windows and for Linux (see "psycopg Licence Review" below). All other licences below are preliminary and must be verified against the exact version and distribution selected.
+**Completed licence reviews:** psycopg 3.3.9 for Windows and for Linux (see "psycopg Licence Review" below); argon2-cffi 25.1.0 and argon2-cffi-bindings 26.1.0 (see "Argon2 Licence Review" below). All other licences below are preliminary and must be verified against the exact version and distribution selected.
 
 **Container images are built locally only.** No AEGIS image may be published, pushed or otherwise distributed until a separate distribution-compliance review is complete (DECISIONS.md D-059). Distribution compliance has not been achieved.
 
@@ -62,7 +62,8 @@ Redis 7.4 and later are licensed under RSALv2/SSPLv1, and Redis 8 adds AGPLv3 as
 | psycopg 3 (`psycopg[binary]`) | PostgreSQL driver | LGPL-3.0-only | **Reviewed (Windows and Linux)** | Installed (3.3.9, with `psycopg-binary` 3.3.9) in `apps/backend` and the backend image. Used unmodified as a separately installed library. The Windows wheel bundles libpq and OpenSSL; the Linux wheels also bundle Kerberos, LDAP, SASL, keyutils and libcrypt, including **LGPL components**. See "psycopg Licence Review". |
 | pydantic | Data validation | MIT | Planned | Installed (2.14.3). |
 | pydantic-settings | Configuration management | MIT | Planned | Installed (2.16.3). |
-| argon2-cffi | Argon2id password hashing | MIT | Planned | |
+| argon2-cffi 25.1 | Argon2id password hashing | MIT | **Reviewed** | Installed (25.1.0) in `apps/backend` and the backend image (DECISIONS.md D-062). See "Argon2 Licence Review". |
+| argon2-cffi-bindings 26.1 | Compiled bindings to the Argon2 reference library | MIT; bundles libargon2 under CC0-1.0 OR Apache-2.0 | **Reviewed** | Installed (26.1.0), pinned exactly in `pyproject.toml`. See "Argon2 Licence Review". |
 | cryptography | Ed25519 job signing | Apache-2.0 OR BSD-3-Clause | Planned | Binary wheels bundle OpenSSL; verify during review. |
 | redis (redis-py) 8.1 | Client used by Celery and the readiness check to connect to Valkey | MIT | Planned | Installed (8.1.0). The client library is MIT; the Redis server's licence change does not affect it. |
 | import-linter 2.16 | Architectural import contracts | BSD-2-Clause | Planned | Development dependency only. Installed (2.16) in `apps/backend` (DECISIONS.md D-048). |
@@ -90,6 +91,10 @@ Development only, required by Ruff, mypy and import-linter (DECISIONS.md D-045, 
 - **pathspec (MPL-2.0)**, required by mypy. MPL-2.0 is a file-level copyleft licence. It is used unmodified as a development tool and is never distributed with AEGIS, so it creates no obligations for AEGIS.
 
 Lock-file maintenance only (`lock` extra, not installed by the lock file): pip-tools (BSD-3-Clause), build (MIT), pyproject_hooks (MIT), wheel (MIT), pip (MIT), setuptools (MIT).
+
+Password hashing, required by argon2-cffi (DECISIONS.md D-062):
+
+- argon2-cffi-bindings (MIT, bundling libargon2 under CC0-1.0 OR Apache-2.0), cffi 2.1.1 (MIT-0), pycparser 3.12 (BSD-3-Clause).
 
 Database, required by SQLAlchemy, Alembic and psycopg:
 
@@ -233,6 +238,7 @@ Transitive test dependencies (development only, never shipped; 62 packages added
 | React Testing Library 16, user-event 14, jest-dom 7 | Frontend component tests | MIT | Planned | Development dependencies only; see Frontend Packages. |
 | jsdom 31 | Browser environment for frontend tests | MIT | Planned | Development dependency only. |
 | Playwright | End-to-end tests | Apache-2.0 | Planned | Development dependency only. Downloaded browser binaries carry their own licences. |
+| Playwright (`@playwright/test` 1.64.1) | End-to-end browser tests | Apache-2.0 | Planned | Development dependency of `apps/frontend`, pinned exactly (DECISIONS.md D-073). Chromium is downloaded by `npx playwright install chromium` into the developer's cache; it is not part of the repository or any image. |
 
 ## Continuous Integration
 
@@ -256,6 +262,18 @@ All images are pinned by digest in `docker-compose.yml` and the Dockerfiles (DEC
 | `python:3.11.18-slim-trixie` (Docker Official Image) | Base of the backend image | PSF-2.0, plus Debian package licences | Planned | The Debian base includes GPL-licensed packages. **If AEGIS publishes images built on it, source-availability obligations for those packages apply** and must be addressed before publishing. |
 | `node:22.23.5-trixie-slim` (Docker Official Image) | Build stage of the frontend image only | MIT, plus Debian package licences | Planned | Not part of the final frontend image. |
 | `nginxinc/nginx-unprivileged:1.30.6-alpine` (NGINX, Inc.) | Base of the frontend image | BSD-2-Clause (nginx), plus Alpine package licences | Planned | Same publication caveat as the Python base. |
+
+## Argon2 Licence Review
+
+Reviewed on 2026-11-17 for argon2-cffi 25.1.0 and argon2-cffi-bindings 26.1.0, the versions in both lock files (DECISIONS.md D-062).
+
+- **argon2-cffi 25.1.0:** pure Python, MIT. Pure-Python wheel; the PyPI hash matches the lock files.
+- **argon2-cffi-bindings 26.1.0:** MIT (the only licence file in the wheel). Wheels are `cp310-abi3` for `manylinux_2_26`/`manylinux_2_28` on x86_64 and aarch64, and `win_amd64`; every hash in the lock files matches PyPI. The backend image (Debian, glibc) installs the binary wheel; no compiler is needed.
+- **libargon2 (bundled):** the bindings compile the Argon2 reference implementation (phc-winner-argon2, git submodule at commit `f57e61e`) into the extension module. Upstream licence: **CC0-1.0 OR Apache-2.0**, at the user's choice. The wheel does not include this licence text. AEGIS relies on the Apache-2.0 option, which is compatible with AEGIS's licence; the attribution below is the required notice when the library is distributed, for example in an image.
+- **cffi 2.1.1:** MIT-0. **pycparser 3.12:** BSD-3-Clause.
+- pip-audit reports no known vulnerabilities for these versions.
+
+Attribution: *Argon2 reference implementation, Copyright 2015 Daniel Dinu, Dmitry Khovratovich, Jean-Philippe Aumasson and Samuel Neves, dual licensed under CC0 1.0 and the Apache License 2.0 (https://github.com/P-H-C/phc-winner-argon2).*
 
 ## Not Yet Selected
 

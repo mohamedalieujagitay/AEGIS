@@ -38,9 +38,13 @@ class AppError(Exception):
     code: str = "bad_request"
     message: str = "The request could not be processed."
 
-    def __init__(self, message: str | None = None) -> None:
+    def __init__(
+        self, message: str | None = None, headers: Mapping[str, str] | None = None
+    ) -> None:
         if message is not None:
             self.message = message
+        self.headers: dict[str, str] = dict(headers or {})
+        """Extra response headers, for example ``Retry-After``."""
         super().__init__(self.message)
 
 
@@ -93,7 +97,9 @@ def _status_code_name(status_code: int) -> tuple[str, str]:
 
 async def _handle_app_error(request: Request, exc: Exception) -> JSONResponse:
     error = cast(AppError, exc)
-    return error_response(request, error.status_code, error.code, error.message)
+    return error_response(
+        request, error.status_code, error.code, error.message, headers=error.headers or None
+    )
 
 
 async def _handle_http_exception(request: Request, exc: Exception) -> JSONResponse:

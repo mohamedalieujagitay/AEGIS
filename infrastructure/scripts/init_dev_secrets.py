@@ -2,8 +2,9 @@
 
     python infrastructure/scripts/init_dev_secrets.py [--secrets-dir DIR]
 
-Creates random passwords and the Valkey ACL file in ``secrets/`` at the
-repository root (gitignored) or in ``--secrets-dir``. Existing files are
+Creates random passwords, the API's server secret key and the Valkey ACL
+file in ``secrets/`` at the repository root (gitignored) or in
+``--secrets-dir``. Existing files are
 never overwritten: running the script again only creates what is missing.
 Secret values are never printed.
 
@@ -34,6 +35,8 @@ PASSWORD_FILES = (
     "valkey_internal_password",
     "valkey_assessment_password",
     "valkey_healthcheck_password",
+    # Server secret for CSRF tokens and rate-limit key names (DECISIONS.md D-065).
+    "aegis_secret_key",
 )
 ACL_FILE = "valkey_users.acl"
 
@@ -53,6 +56,13 @@ _CONSUMER = (
 )
 
 
+# Authentication rate limiting (DECISIONS.md D-066). A selector grants these
+# commands only on "ratelimit:*" keys: the API user cannot use them on the
+# task queues, and cannot read or change anything else. (redis-py's incr()
+# sends INCRBY.)
+_RATE_LIMIT = "(~ratelimit:* +mget +pttl +incrby +expire +set +del +multi +exec)"
+
+
 def _namespace_keys(*roles: str) -> str:
     patterns: list[str] = []
     for role in roles:
@@ -69,7 +79,7 @@ def _namespace_keys(*roles: str) -> str:
 ACL_USERS = {
     "aegis-api": (
         "valkey_api_password",
-        f"{_CONNECT} {_PRODUCER} {_namespace_keys('internal', 'assessment')}",
+        f"{_CONNECT} {_PRODUCER} {_namespace_keys('internal', 'assessment')} {_RATE_LIMIT}",
     ),
     "worker-internal": (
         "valkey_internal_password",

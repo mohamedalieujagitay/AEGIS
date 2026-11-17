@@ -51,6 +51,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         frozen=True,
+        # Validation errors must not quote the input: it contains secrets.
+        hide_input_in_errors=True,
     )
 
     environment: Environment = Environment.PRODUCTION
@@ -133,6 +135,54 @@ class Settings(BaseSettings):
     worker_heartbeat_file: str = "/tmp/aegis-worker-heartbeat"  # noqa: S108
     """File a worker touches while connected to the broker; read by its health check."""
 
+    # Authentication (DECISIONS.md D-061 to D-068).
+    secret_key: SecretStr | None = None
+    """Server secret for CSRF tokens and rate-limit keys (at least 32 characters).
+    Required by the API in production; read from the ``aegis_secret_key`` secret file."""
+
+    allowed_origins: str = ""
+    """Comma-separated browser origins allowed to send state-changing requests,
+    for example ``https://aegis.example.com``. A request's own origin is always allowed."""
+
+    cookie_secure: bool = True
+    """Mark cookies ``Secure`` and use the ``__Host-`` prefix. Never disable in production."""
+
+    session_idle_timeout_minutes: int = Field(default=60, ge=5, le=1440)
+    """A session ends after this long without a request."""
+
+    session_absolute_timeout_hours: int = Field(default=12, ge=1, le=168)
+    """A session ends this long after sign-in, regardless of activity."""
+
+    password_reset_token_ttl_minutes: int = Field(default=60, ge=5, le=1440)
+    """How long a password reset token issued by an administrator stays valid."""
+
+    password_hash_concurrency: int = Field(default=4, ge=1, le=32)
+    """Argon2id hashes computed at the same time (each uses 64 MiB of memory)."""
+
+    device_trust_days: int = Field(default=30, ge=1, le=30)
+    """How long a browser that signed in with the password skips the per-account sign-in delay."""
+
+    rate_limit_window_seconds: int = Field(default=900, ge=60, le=86400)
+    """Window for the failure counters of the rate limits."""
+
+    login_ip_max_failures: int = Field(default=30, ge=1)
+    """Failed sign-ins per client address and window before the address is throttled."""
+
+    login_pair_free_failures: int = Field(default=5, ge=1)
+    """Failed sign-ins for one account from one address before progressive delays start."""
+
+    login_account_throttle_failures: int = Field(default=20, ge=1)
+    """Failed sign-ins for one account from any address before the account-wide delay."""
+
+    login_account_delay_seconds: int = Field(default=10, ge=1, le=300)
+    """Minimum interval between attempts on an account once it is being attacked."""
+
+    registration_ip_max_attempts: int = Field(default=5, ge=1)
+    """Registrations per client address and hour."""
+
+    password_reset_ip_max_attempts: int = Field(default=10, ge=1)
+    """Password reset attempts per client address and window."""
+
     @model_validator(mode="after")
     def _reject_debug_in_production(self) -> Self:
         if self.debug and self.environment is Environment.PRODUCTION:
@@ -164,6 +214,14 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _secure_authentication_settings(self) -> Self:
+        if self.secret_key is not None and len(self.secret_key.get_secret_value()) < 32:
+            raise ValueError("the secret key must be at least 32 characters long")
+        if self.environment is Environment.PRODUCTION and not self.cookie_secure:
+            raise ValueError("AEGIS_COOKIE_SECURE must be true in the production environment")
+        return self
+
+    @model_validator(mode="after")
     def _hard_limit_after_soft_limit(self) -> Self:
         if self.worker_task_time_limit <= self.worker_task_soft_time_limit:
             raise ValueError("the task time limit must be greater than the soft time limit")
@@ -178,6 +236,27 @@ class Settings(BaseSettings):
     def valkey_configured(self) -> bool:
         """Whether a broker connection has been configured."""
         return self.valkey_host is not None
+
+    @property
+    def allowed_origin_list(self) -> frozenset[str]:
+        """``allowed_origins`` as a set, without trailing slashes."""
+        return frozenset(
+            origin.strip().rstrip("/")
+            for origin in self.allowed_origins.split(",")
+            if origin.strip()
+        )
+
+    @property
+    def session_cookie_name(self) -> str:
+        return "__Host-aegis_session" if self.cookie_secure else "aegis_session"
+
+    @property
+    def device_cookie_name(self) -> str:
+        return "__Host-aegis_device" if self.cookie_secure else "aegis_device"
+
+    @property
+    def csrf_cookie_name(self) -> str:
+        return "__Host-aegis_csrf" if self.cookie_secure else "aegis_csrf"
 
     @property
     def docs_enabled(self) -> bool:

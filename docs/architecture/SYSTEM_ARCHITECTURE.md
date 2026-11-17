@@ -275,6 +275,12 @@ Sensitive authentication credentials must not be stored in localStorage.
 
 CSRF protection must be implemented for state-changing requests.
 
+Implementation (roadmap 2.1, DECISIONS.md D-061 to D-068):
+
+- `src/lib/api.ts` sends every request to the same origin with `credentials: 'same-origin'`, adds the `X-CSRF-Token` header to state-changing requests, checks the shape of every response before use, and raises API errors in the shared error format. The CSRF token is held in memory only; nothing is stored in `localStorage` or `sessionStorage`, and the session cookie is `HttpOnly`.
+- `features/authentication` holds the sign-in, registration (shown only when open registration is enabled) and reset-password pages, the `AuthProvider`, which asks `GET /api/v1/auth/me` who is signed in, and the route guards: every application page requires a session; sign-in and registration redirect signed-in users. A 401 from any API call returns the user to the sign-in page, with a notice when the session expired.
+- The guards only decide what to show. The backend enforces authentication and authorization on its own.
+
 ---
 
 # 4. BACKEND ARCHITECTURE
@@ -799,6 +805,18 @@ Session requirements:
 
 Passwords must use Argon2id.
 
+Implementation (roadmap 2.1):
+
+- **Accounts and administration** (D-061): email address and username, an instance-administrator flag and an active flag. Open registration is off by default. The first administrator is created with the CLI (`python -m app.cli create-admin`), which never takes passwords as arguments.
+- **Passwords** (D-062, D-063): Argon2id, RFC 9106 low-memory profile, with a concurrency limit per process; 12 to 128 characters, no composition rules; a dummy verification for unknown accounts keeps failures uniform in time.
+- **Device cookie** (D-070): after a sign-in, `__Host-aegis_device` (at most 30 days) lets that browser skip the account-wide sign-in delay. Only a hash of its token is stored; a password change or reset, or deactivation, revokes all of an account's devices; the owner can list and revoke them through `/api/v1/auth/devices`, and in Settings → Security → Trusted devices (the page explains that a device does not sign anyone in). A device never authenticates; sign-out does not revoke it.
+- **Sessions** (D-064): 256-bit random tokens stored as SHA-256 hashes in `user_sessions`; cookie `__Host-aegis_session` (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`); 60 minutes idle and 12 hours absolute expiry; revoked at sign-out, on a new sign-in from the same browser and, for all of a user's sessions, on password reset.
+- **CSRF** (D-065): deny-by-default middleware for every state-changing API request: `Origin` check, double-submit token in `X-CSRF-Token` and the `__Host-aegis_csrf` cookie, HMAC-signed and bound to the session (or `anonymous` before sign-in), rotated at sign-in and sign-out.
+- **Rate limiting** (D-066, D-070): Valkey counters per client address, per account and address with progressive delays, and per account with one admitted attempt per delay. Attempts reserve their slot atomically before the password is checked, so concurrent requests cannot all pass. A browser with a valid device cookie is exempt from the per-account scope only. No permanent lockout; fails closed with 503 when Valkey is unavailable.
+- **Security logging** (D-067): structured `auth.*` events without email addresses, passwords, tokens or cookies.
+
+Endpoints: `GET /api/v1/auth/csrf`, `GET /api/v1/auth/options`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`, `POST /api/v1/auth/password/reset`; instance administration: `GET`/`PUT /api/v1/admin/settings/registration`, `POST /api/v1/admin/password-resets`.
+
 ## 9.2 Authorization
 
 The system uses workspace-based role permissions.
@@ -831,6 +849,8 @@ The instance administrator is an instance-level flag, separate from workspace ro
 ## 9.3 Account Recovery
 
 In v0.1.0, password reset is performed by the instance administrator or through a CLI command on the server (PRD FR-AUTH-005). Every reset revokes the user's sessions. There is no self-service or email-based reset until SMTP support is introduced.
+
+The administrator issues a single-use reset token, valid for 60 minutes and stored as a hash, shown once as a link `/reset-password#token=…` to hand to the user out of band; the token travels in the URL fragment, which browsers never send to a server. The CLI (`python -m app.cli reset-password`) sets a new password directly (DECISIONS.md D-068).
 
 ---
 
@@ -1018,6 +1038,7 @@ Implementation (DECISIONS.md D-053):
 
 - Secrets are files: `infrastructure/scripts/init_dev_secrets.py` generates them in the gitignored `secrets/` directory without ever overwriting an existing file. Compose mounts each one only into the containers that need it, at `/run/secrets`, and the backend reads them when `AEGIS_SECRETS_DIR` is set. The Valkey ACL file stores password hashes only.
 - Non-secret settings are set per service in `docker-compose.yml`; Compose options are documented in the root `.env.example`, and the backend's variables for running outside Docker in `apps/backend/.env.example`.
+- The API's server secret (`AEGIS_SECRET_KEY`, for CSRF tokens and rate-limit key names) is the secret file `aegis_secret_key`, mounted only into the API container. `AEGIS_ALLOWED_ORIGINS` lists the browser origins allowed to send state-changing requests; it defaults to the published frontend address on `127.0.0.1` and `localhost` and must be set when AEGIS is reached under another address (D-065).
 - Production guidance: use `docker-compose.yml` alone, provide operator-managed secret files, run migrations explicitly (`docker compose --profile migrate run --rm migrate`) after a backup, terminate TLS in front of the frontend, and enable PostgreSQL SSL (`verify-full`) and Valkey TLS if those services are reached over an untrusted network.
 
 ## 12.4 Health Checks
@@ -1086,6 +1107,8 @@ Record important security events:
 - Report generation.
 - Instance administration actions (account creation, password resets, setting changes).
 - Rejected ingestion submissions and blocked out-of-scope connections.
+
+Authentication events are written today as structured security log records (`app.security` logger, `auth.*` and `admin.*` events; DECISIONS.md D-067). Persistent, queryable audit-log storage is roadmap task 2.6.
 
 ## 13.3 Error Handling
 
@@ -1158,7 +1181,7 @@ GitHub Actions runs on every pull request and every push to `main` (and on manua
 - Type checking.
 - Import-boundary contracts (§4.5).
 - Backend and frontend tests.
-- Container image builds and the container smoke test.
+- Container image builds, the container smoke test and the browser tests (Playwright, D-073).
 
 The workflow is `.github/workflows/ci.yml` (DECISIONS.md D-048, D-058). It has three independent jobs on `ubuntu-24.04`:
 
@@ -1185,7 +1208,7 @@ The workflow is `.github/workflows/ci.yml` (DECISIONS.md D-048, D-058). It has t
 | Tests | `npm test` (Vitest, D-047) |
 | Build | `npm run build` (production build) |
 
-**Containers (build and smoke test)**: `python3 infrastructure/scripts/smoke_test.py --build` builds the backend and frontend images from the hash-checked `requirements.lock` and `package-lock.json`, starts the production-like stack as the separate Compose project `aegis-smoke` with temporary secrets, and checks service health, the frontend proxy and health endpoints, PostgreSQL role restrictions, Valkey authentication and ACLs, worker isolation, task routing, container security settings and graceful shutdown (D-058). Images are never pushed or uploaded (D-059).
+**Containers (build, smoke test and browser tests)**: `python3 infrastructure/scripts/smoke_test.py --build --e2e` builds the backend and frontend images from the hash-checked `requirements.lock` and `package-lock.json`, starts the production-like stack as the separate Compose project `aegis-smoke` with temporary secrets, and checks service health, the frontend proxy and health endpoints, PostgreSQL role restrictions, Valkey authentication and ACLs, worker isolation, task routing, container security settings and graceful shutdown (D-058). With `--e2e` it then runs the 24 Playwright tests in `apps/frontend/e2e/` against the same disposable stack, after `npm ci` and `npx playwright install --with-deps chromium` (Node.js from `.nvmrc`). A failed browser test fails the job. The development project `aegis` and its volumes are never used. Images are never pushed or uploaded (D-059).
 
 Both workflows run with a read-only token (`contents: read`), use no secrets, trigger on `pull_request` (never `pull_request_target`), pin every action to a full commit hash, have job timeouts and cancel superseded runs. A separate workflow (`pr-title.yml`) checks that pull request titles follow Conventional Commits (D-049). Not covered by CI: a vulnerability scan of the container images' operating-system packages, and `pip-audit`/`npm audit` (run locally before releases).
 

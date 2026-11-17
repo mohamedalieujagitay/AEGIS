@@ -7,4 +7,7 @@ export const paths = {
   reports: '/reports',
   activity: '/activity',
   settings: '/settings',
+  login: '/login',
+  register: '/register',
+  resetPassword: '/reset-password',
 } as const

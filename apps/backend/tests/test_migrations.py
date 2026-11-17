@@ -83,6 +83,8 @@ def test_upgrade_and_downgrade(database_settings: Settings) -> None:
 
 
 def test_models_and_migrations_are_in_sync(database_settings: Settings) -> None:
+    import app.models  # noqa: F401  (registers every model)
+
     with _connection(database_settings) as connection:
         command.upgrade(_config(connection), "head")
         differences = compare_metadata(MigrationContext.configure(connection), Base.metadata)
@@ -125,9 +127,17 @@ def test_a_migration_can_be_generated_and_applied(
     script_location = tmp_path / "migrations"
     shutil.copytree(MIGRATIONS_DIR, script_location, ignore=shutil.ignore_patterns("__pycache__"))
 
+    # The demo model is added to a copy of the application's metadata, so
+    # autogenerate sees the existing tables and only adds the new one.
+    import app.models  # noqa: F401  (registers every model)
+
+    demo_metadata = MetaData(naming_convention=NAMING_CONVENTION)
+    for table in Base.metadata.sorted_tables:
+        table.to_metadata(demo_metadata)
+
     class DemoBase(Base):
         __abstract__ = True
-        metadata = MetaData(naming_convention=NAMING_CONVENTION)
+        metadata = demo_metadata
 
     class DemoItem(UUIDPrimaryKeyMixin, TimestampMixin, DemoBase):
         __tablename__ = "demo_items"

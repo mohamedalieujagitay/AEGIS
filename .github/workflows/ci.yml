@@ -2,7 +2,8 @@
 #
 # Runs linting, formatting checks, type checking, import-boundary contracts
 # and tests for the backend and the frontend, then builds the container
-# images and runs the Compose smoke test.
+# images, runs the Compose smoke test and runs the browser tests (Playwright)
+# against the disposable smoke stack.
 #
 # Security:
 # - Read-only token; no secrets are used. Runs on `pull_request` (never
@@ -142,18 +143,39 @@ jobs:
         run: npm run build
 
   containers:
-    name: Containers (build and smoke test)
+    name: Containers (build, smoke test and browser tests)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # The browser tests run from the frontend project, so it needs Node.js
+      # (the version in .nvmrc) and its locked dependencies (D-073).
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: apps/frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium for the browser tests
+        # Browser binaries and the system libraries they need. Playwright
+        # downloads them from its own CDN; no secret is involved.
+        working-directory: apps/frontend
+        run: npx playwright install --with-deps chromium
+
       # Builds both images locally and runs the stack as the separate Compose
-      # project "aegis-smoke" with temporary secrets, then removes it. Images
-      # are never pushed or uploaded (D-059). Only the Python standard library
-      # and the runner's Docker are used.
-      - name: Build images and run the smoke test
-        run: python3 infrastructure/scripts/smoke_test.py --build
+      # project "aegis-smoke" with temporary secrets, then removes it. The
+      # browser tests run against that disposable stack only: it is created
+      # and destroyed by this job, and the development project "aegis" and its
+      # volumes are never touched (D-059, D-073). Images are never pushed or
+      # uploaded. A failed browser test fails this job.
+      - name: Build images, run the smoke test and the browser tests
+        run: python3 infrastructure/scripts/smoke_test.py --build --e2e

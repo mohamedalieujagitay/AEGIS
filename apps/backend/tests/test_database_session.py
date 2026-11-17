@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
-from fastapi.testclient import TestClient
+from helpers import AegisTestClient
 from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -127,7 +127,7 @@ def test_request_session_commits_and_rolls_back(
     database_settings: Settings, make_db_app: Callable[[Settings], FastAPI]
 ) -> None:
     app = make_db_app(database_settings)
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with AegisTestClient(app, raise_server_exceptions=False) as client:
         assert client.post("/api/v1/db/notes").json() == {"count": 1}
         assert client.post("/api/v1/db/fail").status_code == 500
         assert client.get("/api/v1/db/count").json() == {"count": 1}
@@ -138,7 +138,7 @@ def test_application_does_not_connect_at_startup_and_disposes_on_shutdown(
 ) -> None:
     app = make_db_app(database_settings)
     database: Database = app.state.database
-    with TestClient(app) as client:
+    with AegisTestClient(app) as client:
         assert database._engine is None  # nothing connected at startup
         client.post("/api/v1/db/notes")
         assert database._engine is not None
@@ -162,7 +162,7 @@ def test_unavailable_database_returns_safe_503(
         if configured
         else Settings(environment=Environment.TEST)
     )
-    with TestClient(make_db_app(settings)) as client:
+    with AegisTestClient(make_db_app(settings)) as client:
         response = client.get("/api/v1/db/count")
 
     assert response.status_code == 503

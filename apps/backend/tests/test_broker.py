@@ -111,7 +111,8 @@ def test_client_is_created_lazily_and_disposed() -> None:
     assert broker._client is None
     client = broker.client
     assert broker.client is client
-    assert client.connection_pool.max_connections == 4
+    assert client.connection_pool.max_connections == 16
+    assert isinstance(client.connection_pool, redis.BlockingConnectionPool)
     assert client.connection_pool.connection_class is redis.Connection
     assert "ssl_cert_reqs" not in client.connection_pool.connection_kwargs
     broker.dispose()

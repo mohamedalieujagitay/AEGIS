@@ -19,13 +19,13 @@ This register records approved product and architecture decisions. Changing one 
 | D-009 | Valkey as the message broker | 2026-11-15 | Approved |
 | D-010 | Enforced separation between assessment workers and the database | 2026-11-15 | Approved |
 | D-011 | Signed job payloads, per-job ingestion tokens, separate ingestion listener | 2026-11-15 | Approved; payload-visibility limitation tracked as SR-001 (D-060) |
-| D-012 | Administrator and CLI password reset only in v0.1.0 | 2026-11-15 | Approved |
+| D-012 | Administrator and CLI password reset only in v0.1.0 | 2026-11-15 | Approved; implemented by D-068 |
 | D-013 | Withdrawn | 2026-11-15 | Withdrawn |
-| D-014 | Root `tests/` for end-to-end tests; no `packages/` or top-level `workers/` | 2026-11-15 | Approved |
+| D-014 | Repository layout; end-to-end tests in `apps/frontend/e2e/` (amended 2026-11-17); no `packages/` or top-level `workers/` | 2026-11-15 | Approved; amended 2026-11-17 |
 | D-015 | GitHub Actions for CI | 2026-11-15 | Approved |
 | D-016 | Frontend tooling deferred until frontend implementation | 2026-11-15 | Resolved by D-021 to D-026 (data-fetching library still open) |
 | D-017 | Domain verification does not authorize active assessment of resolved IPs | 2026-11-15 | Approved |
-| D-018 | Instance administrator; CLI bootstrap; open registration off by default | 2026-11-15 | Approved |
+| D-018 | Instance administrator; CLI bootstrap; open registration off by default | 2026-11-15 | Approved; implemented by D-061 |
 | D-019 | Third-party lookups disabled by default | 2026-11-15 | Approved |
 | D-020 | Two worker roles: assessment and internal | 2026-11-15 | Approved |
 | D-021 | Vite 8 as the frontend build tool | 2026-11-15 | Approved |
@@ -49,7 +49,7 @@ This register records approved product and architecture decisions. Changing one 
 | D-039 | Phase 1.3 split into two bundles | 2026-11-15 | Approved |
 | D-040 | Backend packaging, application factory and configuration | 2026-11-15 | Approved; lock file chosen in D-046; worker-side packages created by D-048 |
 | D-041 | Backend test client and FastAPI's OpenTelemetry dependency | 2026-11-15 | Approved; Uvicorn and httpx2 approved |
-| D-042 | Backend errors, logging, request validation and API documentation | 2026-11-15 | Approved; server header and Swagger UI open items resolved by D-051 and D-056 |
+| D-042 | Backend errors, logging, request validation and API documentation | 2026-11-15 | Approved; server header and Swagger UI open items resolved by D-051 and D-056; documentation access restricted by D-069 |
 | D-043 | Database foundation: configuration, engine, sessions, ORM base and migrations | 2026-11-15 | Approved; psycopg Linux wheel reviewed in D-059 |
 | D-044 | Database tests use a disposable PostgreSQL cluster | 2026-11-15 | Approved; CI provisioning in D-048 |
 | D-045 | Backend test configuration, linting, formatting and type checking | 2026-11-16 | Approved |
@@ -68,6 +68,19 @@ This register records approved product and architecture decisions. Changing one 
 | D-058 | Container smoke test in CI | 2026-11-16 | Approved |
 | D-059 | Linux psycopg wheel review; container images are not distributed | 2026-11-16 | Approved; keyutils licence and versions reconciled in D-060; distribution compliance review pending |
 | D-060 | Phase 1.5 review corrections | 2026-11-16 | Approved |
+| D-061 | Phase 2.1 authentication scope, administration and CLI | 2026-11-17 | Approved |
+| D-062 | Argon2id password hashing (argon2-cffi 25.1.0, bindings 26.1.0) | 2026-11-17 | Approved |
+| D-063 | Identifiers and password policy | 2026-11-17 | Approved; common-password list deferred (SR-006) |
+| D-064 | Server-side sessions in `__Host-` cookies; idle and absolute expiry | 2026-11-17 | Approved |
+| D-065 | CSRF protection: Origin check and signed, session-bound double submit | 2026-11-17 | Approved |
+| D-066 | Distributed sign-in rate limiting in Valkey, failing closed | 2026-11-17 | Approved; account-wide lockout corrected by D-070; shared-address limitation tracked as SR-005 |
+| D-067 | Structured security logging for authentication | 2026-11-17 | Approved; persistent audit log in roadmap 2.6 |
+| D-068 | Administrator password reset tokens | 2026-11-17 | Approved |
+| D-069 | API documentation restricted to instance administrators | 2026-11-17 | Approved |
+| D-070 | Two-phase sign-in rate limiting and trusted-device exemption | 2026-11-17 | Approved by the project owner with ten conditions (2026-11-17); residual risks in SR-009 |
+| D-071 | One email normalization for sign-in, registration, CLI and rate limits; lower-case database constraint | 2026-11-17 | Implemented |
+| D-072 | Reset-token cleanup, CLI operator record, startup preparation and broker pool | 2026-11-17 | Implemented |
+| D-073 | End-to-end authentication and trusted-device tests with Playwright, in CI | 2026-11-17 | Approved by the project owner (2026-11-17); integrated in the Containers CI job; first remote run pending observation |
 
 ---
 
@@ -133,7 +146,7 @@ This entry has been withdrawn.
 
 ## D-014 — Repository layout
 
-The root `tests/` directory holds Playwright end-to-end tests. The empty `packages/` and top-level `workers/` directories were removed. Workers live in `apps/backend/app/workers/`, and a shared package directory will be introduced only when a genuine shared package exists.
+Amended 2026-11-17 (project owner approval, Phase 2.1 closure). The Playwright end-to-end tests live in `apps/frontend/e2e/`, next to the frontend that they test, and not in the root `tests/` directory. Playwright is a frontend development dependency, and Node resolves it from the location of the test files, so the root location would need a second dependency tree. The root `tests/` directory is reserved for cross-application tests. The empty `packages/` and top-level `workers/` directories were removed. Workers live in `apps/backend/app/workers/`, and a shared package directory will be introduced only when a genuine shared package exists.
 
 ## D-015 — Continuous integration
 
@@ -687,3 +700,205 @@ Existing development secrets are not overwritten: `init_dev_secrets.py` adds the
 **4. Assessment worker payload visibility is recorded as a security risk.** `docs/security/SECURITY_RISKS.md` is the security risk register. Entry SR-001 records that assessment workers sharing a queue can read each other's task payloads, including other jobs' ingestion tokens, with the current mitigations, the residual risk and future remediation options (per-worker credentials and queues, out-of-band ingestion tokens, per-worker encryption, one container per job, detection). D-011 remains accurate. AEGIS does not provide per-worker task isolation; the Celery architecture is unchanged.
 
 **5. Routine health probes are not access-logged (amends D-057).** The health endpoints mark their normal results (200 and 503) as routine probes, and the request middleware logs marked requests at DEBUG instead of INFO. Requests that fail with an unexpected error are never marked and keep their ERROR level; other requests to the health paths (for example 404 or 405) keep normal logging. nginx does not write `GET`/`HEAD` probes answered with 200 or 503 to its access log. Preserved: dependency failures (`health.check_failed`, `health.check_timeout`, WARNING) and readiness transitions, logged once each (`health.not_ready` at WARNING with the unavailable dependencies, `health.ready` at INFO). Tests cover quiet probes, preserved failures and transitions, and unexpected errors in health endpoints.
+
+## D-061 — Phase 2.1 authentication scope, administration and CLI
+
+Roadmap task 2.1 implements all ten authentication requirements: registration, sign-in, secure sessions, sign-out, session expiration, session revocation, Argon2id password hashing, password reset, sign-in rate limiting, CSRF protection and HTTP-only session cookies. Browser authentication uses server-side sessions only: no JWT, no external identity provider, no hosted authentication service.
+
+- **Accounts.** Email address (unique, normalized) and username (unique, 3 to 32 of `a-z 0-9 . _ -`, stored in lower case) are both required. An instance-administrator flag (D-018) and an active flag exist; workspace roles are roadmap 2.3.
+- **Open registration** is off by default (D-018). The setting is stored in a single-row `instance_settings` table, created disabled by the migration. Successful registration signs the user in.
+- **Instance administration** needed by authentication only: the CLI, plus `PUT /api/v1/admin/settings/registration` and `POST /api/v1/admin/password-resets`, and a matching section in Settings → Security that only instance administrators see. Every administration endpoint checks the flag on the server. User management (listing, deactivating, changing roles) is roadmap 2.2.
+- **CLI** (`python -m app.cli`, in Compose `docker compose exec backend python -m app.cli …`): `create-admin` (the first account of an instance; no default credentials exist), `create-user`, `reset-password`, `registration show|enable|disable`, `purge-expired`. Passwords are never command-line arguments: they are read with a hidden prompt, entered twice, or from standard input with `--password-stdin`. Logs go to standard error, results to standard output; nothing secret is printed.
+- New dependencies: argon2-cffi and argon2-cffi-bindings (D-062). Email addresses are validated in-house without DNS (D-063); no email library is added.
+
+**Affects:** PRD FR-AUTH-001 to FR-AUTH-006; SYSTEM_ARCHITECTURE §9.
+
+## D-062 — Argon2id password hashing
+
+- argon2-cffi **25.1.0** with argon2-cffi-bindings **26.1.0**, pinned with hashes in both lock files. The bindings version is pinned exactly in `pyproject.toml` so the lock cannot move to an unreviewed release.
+- Reviewed before adoption: PyPI hashes of every wheel and the sdist match the lock files; Linux wheels are `cp310-abi3` for `manylinux_2_26`/`manylinux_2_28` on x86_64 and aarch64 (plus `win_amd64`), so the container images (Debian, glibc) install a binary wheel without a compiler. The bindings statically link libargon2 from the phc-winner-argon2 reference implementation (commit `f57e61e`), licensed **CC0-1.0 OR Apache-2.0**; the wheel ships only the bindings' MIT licence, so the libargon2 licence is recorded in THIRD_PARTY_NOTICES.md. Further runtime dependencies: cffi 2.1.1 (MIT-0) and pycparser 3.12 (BSD-3-Clause). No known vulnerabilities (pip-audit).
+- Parameters: the RFC 9106 low-memory profile (Argon2id, 64 MiB, 3 iterations, 4 lanes, 16-byte salt, 32-byte hash); about 65 ms per verification on the development machine. Hashes with other parameters are upgraded at the next successful sign-in.
+- At most `AEGIS_PASSWORD_HASH_CONCURRENCY` (default 4) hashes run at once in a process, so concurrent sign-ins cannot exhaust the API container's 512 MiB memory limit.
+- Sign-in for an unknown email address verifies the password against a dummy hash, so it takes as long as a real failure.
+
+**Affects:** SYSTEM_ARCHITECTURE §9; THIRD_PARTY_NOTICES.md.
+
+## D-063 — Identifiers and password policy
+
+- Email addresses: trimmed, at most 254 characters, one `@`, a conservative local part, a domain with at least two labels converted to IDNA and the whole address lower-cased. No DNS lookups and no deliverability checks (AEGIS sends no email in v0.1.0).
+- Passwords follow NIST SP 800-63B: 12 to 128 characters, no composition rules, spaces allowed and kept as typed. Passwords containing the username or the email address's local part are rejected. A common-password list is deferred (SR-006).
+- Error messages for duplicates do not say whether the email address or the username is taken.
+
+**Affects:** SYSTEM_ARCHITECTURE §9.
+
+## D-064 — Server-side sessions
+
+- A session token is 256 random bits (`secrets.token_urlsafe(32)`). Only its SHA-256 hash is stored (`user_sessions.token_hash`), with the user, creation time, last activity, absolute expiry, revocation time and reason, client address and a truncated user agent.
+- Cookie `__Host-aegis_session`: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`, no `Domain`, no `Max-Age` (it ends with the browser session; the server enforces the real expiry). No endpoint returns the token in a body.
+- **Expiry:** 60 minutes of inactivity (`AEGIS_SESSION_IDLE_TIMEOUT_MINUTES`) and 12 hours in any case (`AEGIS_SESSION_ABSOLUTE_TIMEOUT_HOURS`). Activity is recorded at most once a minute. Expired sessions answer 401 `session_expired`; missing, unknown or revoked ones 401 `authentication_required`.
+- **Revocation:** sign-out revokes the session on the server; signing in again replaces the browser's previous session; a password reset (administrator link or CLI) revokes every session of the account; a deactivated account's sessions stop working at once. Ended sessions are deleted 7 days after they end (at sign-in, and by `purge-expired`).
+- `AEGIS_COOKIE_SECURE` (default true, required in production) controls the `Secure` attribute and the `__Host-` prefix. Browsers accept `Secure` cookies from `http://localhost` and `http://127.0.0.1`, so the local stack keeps production cookie settings; this was verified in Chromium against the development stack (verified on 2026-11-17 in Chromium 158, on both loopback addresses and on the disposable smoke stack: sign-in, reload, sign-out).
+
+**Affects:** SYSTEM_ARCHITECTURE §9.
+
+## D-065 — CSRF protection
+
+Deny-by-default ASGI middleware checks every `POST`, `PUT`, `PATCH` and `DELETE` under `/api/` (new endpoints are covered automatically) and refuses failures with 403 `csrf_failed`:
+
+1. **Origin.** If present, `Origin` must be the request's own origin or one of `AEGIS_ALLOWED_ORIGINS`; `Origin: null` and `Sec-Fetch-Site: cross-site` are refused.
+2. **Signed double submit.** The `X-CSRF-Token` header must equal the `__Host-aegis_csrf` cookie (same attributes as the session cookie). The frontend keeps the token in memory only; it comes from `GET /api/v1/auth/csrf` or from the sign-in response.
+3. **Binding.** The token is `v1.<issued-at>.<nonce>.<HMAC-SHA-256(secret, "v1.<issued-at>.<nonce>|<binding>")>`. Before sign-in the binding is `anonymous`; after sign-in it is `session:<SHA-256 of the session cookie>`. A token is valid only with the binding of the request it arrives with, so a token from one session fails with another, and an anonymous token fails once a session exists.
+4. **Age.** Tokens older than the absolute session lifetime are refused.
+
+**Rotation:** sign-in and registration return a new session-bound token (and set its cookie); sign-out and password reset clear the CSRF cookie, and the client fetches a new anonymous token. Sign-in itself requires a valid anonymous token, which prevents login CSRF. `SameSite=Strict` is an additional layer, not the only one.
+
+The server secret `AEGIS_SECRET_KEY` (at least 32 characters) signs the tokens and names the rate-limit counters (D-066). In Compose it is the secret file `secrets/aegis_secret_key`, created by `init_dev_secrets.py` and mounted only into the API container. It is required in production; elsewhere a temporary key is generated at start-up with a warning. Settings validation errors no longer quote their input, so a misconfigured secret never appears in an error message.
+
+Because nginx forwards the `Host` header without the port, Compose sets `AEGIS_ALLOWED_ORIGINS` to `http://127.0.0.1:<AEGIS_HTTP_PORT>,http://localhost:<AEGIS_HTTP_PORT>` by default; deployments reached under another address set it explicitly.
+
+**Affects:** SYSTEM_ARCHITECTURE §9, §12.
+
+## D-066 — Distributed sign-in rate limiting
+
+Counters live in Valkey, shared by every API process. Their names are `ratelimit:<kind>:<HMAC(secret, value)>`, so email addresses and client addresses never appear in Valkey. Every limit fails closed: if Valkey cannot be reached, sign-in, registration and password reset answer 503 `service_unavailable` (logged as `auth.rate_limiter_unavailable`) rather than run without limits. Throttled requests answer 429 `too_many_requests` with `Retry-After`, identically for existing and unknown accounts.
+
+Limits (all configurable; window `AEGIS_RATE_LIMIT_WINDOW_SECONDS` = 15 minutes):
+
+| Scope | Limit |
+|---|---|
+| Per client address | 30 failed sign-ins per window, then refused until the window ends |
+| Per account and client address | 5 free failures; each further failure blocks that pair for 30, 60, 120, 240, 480 s, capped at the window |
+| Per account, any address | after 20 failures in a window, at most one attempt per 10 s |
+| Registration | 5 attempts per client address per hour |
+| Password reset (token redemption) | 10 attempts per client address per window |
+
+**Account denial of service (corrected by D-070).** The design above first let distributed attempts keep the account-wide delay extended: each failure re-set it, so an attacker rotating through 20 addresses blocked the owner for 3,541 of 3,600 seconds in the engineering review's simulation. D-070 changes the account-wide scope: the delay is set once per admitted attempt and is never extended by refusals, and a browser holding a valid device token is exempt from it. Per-address and per-account-and-address limits are unchanged. There is still no permanent lockout: counters expire with the window, and a successful sign-in clears that account-and-address pair.
+
+The `aegis-api` Valkey user gains an ACL selector, `(~ratelimit:* +mget +pttl +incrby +expire +set +del +multi +exec)` (redis-py's `incr()` sends `INCRBY`; found by the smoke test): these commands work only on `ratelimit:*` keys, and the API still cannot read or change the task queues beyond sending tasks. The smoke test checks both. Existing development ACL files are reported as out of date by `init_dev_secrets.py` and are regenerated with the documented workflow (D-060 §3); passwords are kept.
+
+Limitation: users behind one shared address (NAT, proxy) share the per-address limit (SR-005).
+
+**Affects:** SYSTEM_ARCHITECTURE §9, §12.
+
+## D-067 — Structured security logging for authentication
+
+Authentication events are written as structured log records (logger `app.security`) with an `event` name: `auth.login_succeeded`, `auth.login_failed` (with `reason` and, for known accounts, `user_id`), `auth.logout`, `auth.registration_succeeded`, `auth.registration_rejected`, `auth.session_expired`, `auth.password_rehashed`, `auth.password_reset_issued`, `auth.password_reset_completed` (with `revoked_count`), `auth.password_reset_failed`, `auth.csrf_rejected` (with `reason`), `auth.rate_limited` (with `scope`), `auth.rate_limiter_unavailable`, `auth.forbidden`, `auth.ephemeral_secret_key`, `admin.registration_changed`, and the device events `auth.device_trusted`, `auth.device_revoked`, `auth.devices_revoked`, `auth.device_rejected` and `auth.account_deactivated` (D-070).
+
+Records identify people by user ID and client address, never by email address. Passwords, session tokens, CSRF tokens, reset tokens, cookies and the secret key are never logged; the existing redaction of sensitive field names (D-042) remains as a second layer. Tests and the smoke test search the logs for every secret value used.
+
+Persistent, queryable audit-log storage remains roadmap task 2.6; these records are its source events.
+
+**Affects:** SYSTEM_ARCHITECTURE §9, §11.
+
+## D-068 — Administrator password reset tokens
+
+Implements D-012. An instance administrator issues a reset token for a user (`POST /api/v1/admin/password-resets` or Settings → Security). The token:
+
+- is 256 random bits, stored only as a SHA-256 hash, valid for `AEGIS_PASSWORD_RESET_TOKEN_TTL_MINUTES` (60), single-use;
+- replaces the user's earlier unused tokens;
+- is shown once, as a link `/reset-password#token=…`. A URL fragment is never sent to a server, so the token does not reach access logs or `Referer` headers; the reset page removes it from the address bar as soon as it has read it. The administrator hands the link to the user out of band; AEGIS sends no email.
+
+Redeeming the token (`POST /api/v1/auth/password/reset`) checks the password policy, sets the new password, marks the token used and revokes every session of the account, in one transaction. A rejected password leaves the token usable. The user is not signed in automatically. The CLI's `reset-password` sets a new password directly and also revokes every session.
+
+**Affects:** PRD FR-AUTH-005; SYSTEM_ARCHITECTURE §9.
+
+## D-069 — API documentation restricted to instance administrators
+
+Amends D-042 and D-056. Until now, wherever API documentation was enabled (development and test by default), `/api/docs` and `/api/openapi.json` were readable without signing in. The schema is a complete map of the API, so it is no longer public anywhere:
+
+- Both routes require a signed-in instance administrator: 401 `authentication_required` without a session, 403 `forbidden` for other users. Responses are `Cache-Control: no-store`. FastAPI's own public schema route is not registered.
+- Documentation stays disabled in production unless `AEGIS_API_DOCS_ENABLED=true`, and even then it is admin-only.
+- The vendored Swagger UI assets under `/api/docs/assets/` stay unauthenticated: they are the unmodified upstream files and contain nothing about AEGIS.
+- Unchanged: every API endpoint already enforces authentication itself; the development ports (8080, 8000) listen on 127.0.0.1 only.
+
+Tests cover anonymous (401), non-administrator (403) and administrator (200) access to both routes.
+
+## D-070 — Two-phase sign-in rate limiting and trusted-device exemption
+
+Amends D-066. The engineering review of 2026-11-17 found two defects in the limiter; this decision changes the account-wide scope to fix them.
+
+**Defect 1: distributed attempts kept the account locked.** The account-wide scope blocked the account for 10 seconds after every failure, and each failure re-set the block. An attacker rotating through 20 addresses, retrying whenever the block lapsed, kept an owner who signed in from an ordinary address blocked for 98% of an hour (3,541 of 3,600 seconds in the simulation). D-066 said this could not happen.
+
+**Defect 2: parallel attempts bypassed the limits.** Limits were checked before the password and failures were recorded afterwards, so N parallel requests all passed the check (100 of 100 admitted in the simulation).
+
+### Algorithm
+
+Sign-in is two-phase. `begin_login` reserves the attempt; `finish_login` releases it with its outcome. All counters are changed with atomic Valkey commands. In-flight counters use INCRBY (and the same command with a negative amount to release) and expire after 60 seconds, so a request that dies cannot leak a reservation.
+
+1. **Reserve.** INCRBY the in-flight counters for the client address, the account-and-address pair and, unless the request is trusted (below), the account. Then read the blocks and the failure counters. The reservation comes *before* the blocks are read: a failure that completes concurrently sets its block before it releases its reservation, so an attempt that reserved after the release sees the block.
+2. **Admit or refuse.** With `others` = in-flight attempts other than this one:
+   - *Per address:* admitted while `failures + others < 30` in the window (a hard limit, as before).
+   - *Per account and address:* refused while a block is active. Admitted if `others = 0` or `failures + others < 5`. Past the five free failures, one attempt at a time for the pair.
+   - *Per account, any address (unless trusted):* refused while the account block is active; admitted if `others = 0` or `failures + others < 20`. An attempt admitted with `others = 0` past the threshold sets the account block (SET NX, 10 seconds) and is the only attempt admitted during it. Refusals and failures never re-set it.
+   - A refused reservation is released at once. A refusal caused only by concurrent attempts answers 429 with a 1-second retry hint, in the same generic form as the others.
+3. **Finish.** A failure increments the failure counters and, past the free failures, sets the pair's progressive block (30 seconds, doubling, capped at the window). A success clears the pair's counters and block; successes are never counted as failures. An abandoned attempt (for example after a database error) is released without counting. An attempt can be finished once.
+
+**Why this stops the demonstrated attack.** The account-wide delay admits one attempt per 10 seconds and does not grow. A request carrying a valid device token does not compete for that attempt at all. The regression test `test_rotating_addresses_cannot_lock_out_the_account_owner` runs the attack for an hour with 20 rotating addresses while the owner signs in every second: the owner is admitted every second and the attacker stays within one attempt per delay plus the bounded burst below. `test_owner_with_a_device_token_signs_in_during_a_distributed_attack` does the same over HTTP with real client addresses.
+
+**Why the concurrency is now safe.** The reservations are atomic and precede the checks. Fifty simultaneous attempts on one pair admit exactly the five free ones; past the free failures, exactly one; fifty attempts on one account from fifty addresses after the threshold admit exactly one. These are tested against the in-memory store and against a real Valkey server (`test_valkey_rate_limit.py`).
+
+### Trusted-device exemption (approved 2026-11-17, with conditions)
+
+The project owner approved the exemption on 2026-11-17, subject to the ten conditions below. Each is enforced in code and covered by tests.
+
+1. **Only a hash is stored.** The table `trusted_devices` (migration `c4d8e2f6a7b9`) holds the SHA-256 of the device token. The token itself is never stored or logged; the smoke test checks that no token reaches the logs.
+2. **Cookie.** `__Host-aegis_device`: Secure, HttpOnly, SameSite=Strict, Path=/, host-only (no `Domain`).
+3. **Lifetime.** At most 30 days, fixed at issue time (`AEGIS_DEVICE_TRUST_DAYS` cannot exceed 30). Use never extends it.
+4. **Invalidation.** A password change or reset (`accounts.set_password`, which the administrator's and the CLI's resets both use) revokes every device of the account. Deactivation (`accounts.deactivate`) ends the account's sessions and devices at once. No endpoint deactivates an account in v0.1.0; account management is roadmap 2.2.
+5. **Independent revocation.** `DELETE /api/v1/auth/devices/{id}` revokes one device. `GET /api/v1/auth/devices` lists the user's devices with their metadata, never a token or hash.
+6. **Never authenticates.** A device cookie does not sign anyone in: sessions are a separate table and cookie. A device only exempts the sign-in from the account-wide delay, and a sign-in still requires the password.
+7. **Per-address and per-account-and-address limits still apply** to trusted devices (unchanged; tested).
+8. **Device management is protected.** The endpoints are under `/api/`, so the CSRF middleware covers them (403 without a valid token). They require a session (401 without one), and a device of another account is reported as not found (404), so existence is not revealed.
+9. **Ordinary sign-out does not revoke device trust.** Signing out ends the session only. Sign-out everywhere, which would end device trust, arrives with roadmap 2.2.
+10. **Tests:** revocation, password-reset invalidation, deactivation, expiration, token replay (a copied cookie on another account, and a revoked cookie) and unauthorized management requests are covered in `test_devices.py` and `test_device_api.py`.
+11. **Interface.** Settings → Security → Trusted devices lists the browsers (name from the user agent, dates, "This browser" marker), explains what trust does and does not do, and revokes one browser after an explicit confirmation. It uses the device endpoints above; the server enforces ownership. Covered by unit tests (`trustedDevices.test.tsx`) and by the browser suite (`e2e/trusted-devices.spec.ts`, 11 tests).
+
+The exemption is limited to the account-wide sign-in delay, so a browser that holds a device still faces the per-address and per-account-and-address limits. Its residual risks are recorded in SR-009.
+
+### Accepted limitations
+
+- **Account counter bursts (SR-010).** The account-wide failure counter is a fixed 15-minute window. When it resets, up to 20 attempts are admitted quickly before the delay resumes. The long-run rate is one attempt per delay, plus at most 20 per window.
+- **Shared addresses (SR-005)** and **browsers without a device token during an attack (SR-009)**, as above.
+- A client whose attempt is refused only because others are in flight can retry every second; it still holds at most one reservation at a time.
+
+### Pool capacity (part of this change)
+
+Sign-in runs in a 40-thread pool and every reservation uses a Valkey connection. The API's pool held 4 connections, so a burst of concurrent sign-ins was refused with 503. The pool is now a blocking pool of 16 connections that waits up to 5 seconds (D-072).
+
+**Affects:** SYSTEM_ARCHITECTURE §9.1; SECURITY_RISKS SR-005, SR-009, SR-010; PRD FR-AUTH-002.
+
+## D-071 — One email normalization; lower-case database constraint
+
+- `normalize_email` (strict) validates an address for registration and the CLI. `normalize_email_for_lookup` (never raises) is used for sign-in, for finding the account a device token belongs to, and for every rate-limit key. The lookup version calls the strict one, so there is one normalization.
+- Internationalized domains are converted to IDNA: `user@Bücher.example`, `USER@BÜCHER.EXAMPLE` and `user@xn--bcher-kva.example` name the same account and share one set of counters. Before this change, sign-in did not convert the domain, so an account registered with an international domain could not sign in (finding M-2).
+- Input that is not a valid address is lower-cased and stripped, or, if it contains control characters, replaced by an empty string, which matches nothing. The empty replacement fixed a defect the new tests found: a NUL character in a sign-in address reached PostgreSQL and produced a 500 response.
+- Migration `b3c9d1e2f4a5` adds the CHECK constraint `ck_users_email_normalized` (`email = lower(email)`). It changes no data; if a non-normalized row existed the migration would fail and change nothing. None exists, because every write path normalizes.
+
+**Affects:** SYSTEM_ARCHITECTURE §9.1; PRD FR-AUTH-001.
+
+## D-072 — Reset-token cleanup, CLI operator record, startup preparation and broker pool
+
+- **Reset tokens.** `purge-expired` also deletes reset tokens that were used or expired more than 7 days ago (the session retention period). Migration `b3c9d1e2f4a5` adds an index on `password_reset_tokens.issued_by_user_id`: it is the foreign key's column, and the foreign key's `ON DELETE SET NULL` would otherwise scan the table.
+- **CLI operator.** A password reset from the command line records `operator`: the operating-system account that ran the command, as the operating system reports it. It is not verified; anyone with shell access to the server can run the command. No account is created for the operator, because none exists to record. This is the actor information FR-AUTH-005 asks for, as far as it can be known without inventing an identity. The persistent audit log (roadmap 2.6) will store it.
+- **Dummy hash.** The hash that spends the time of a real check on unknown accounts is computed when hashing is configured at start-up, so the first unknown-account sign-in takes as long as every later one.
+- **Broker pool.** A blocking pool of 16 connections that waits up to 5 seconds for a free one (previously 4 connections, refusing at once). A request that times out fails closed, like any broker failure.
+- **Commit before responding.** The database session commits only when its dependency exits, after the route has returned. A request that followed a sign-in, sign-out, password reset or reset-link creation could therefore read the previous state. Found by the browser smoke test (a session revoked by a reset was still accepted, and a new sign-in was refused, for a few milliseconds). Each of these routes now commits before it responds, and the smoke test passed on repeated runs afterwards.
+- **Corrections.** The Argon2 decision is cited as D-062 in `pyproject.toml`. The temporary-key docstring in `app/main.py` now says that sessions survive a restart (they are stored in the database), while CSRF tokens, device tokens and rate-limit counter names do not.
+
+**Affects:** PRD FR-AUTH-005; SYSTEM_ARCHITECTURE §12.3 (broker).
+
+## D-073 — End-to-end authentication tests with Playwright
+
+- **Tool.** `@playwright/test` 1.64.1, pinned exactly. It was published on 2026-10-14, older than the two-week minimum the project applies to new releases; the newest stable release at the time (1.65.1, four days old) was not used. Chromium comes from `npx playwright install chromium` into the per-user Playwright cache; it is not part of the repository or of any image.
+- **Files.** `apps/frontend/playwright.config.ts`; `e2e/helpers.ts` (accounts, administrator API, cookies); `e2e/stack.ts` (service steps on a disposable stack); `e2e/authentication.spec.ts` (sign-in, registration, protected routes, password reset); `e2e/trusted-devices.spec.ts` (Settings, revocation, account changes, security negatives). `tsconfig.e2e.json` type-checks them.
+- **Coverage.** Authentication: sign-in and return to the requested page; failed sign-in; reload keeps the session; sign-out ends the server session; protected routes redirect; registration closed by default and enabled by an administrator; mismatched confirmation; reset link with the token removed from the address bar; a reset link used twice; a reset that signs out a session in another browser. Trusted devices: the current browser is listed without its token; another browser is revoked after confirmation and disappears; ordinary sign-out keeps the device and signing in again reuses it; a password reset revokes the account's devices; an expired device is no longer trusted (disposable stack); account deactivation ends sessions and revokes devices (disposable stack). Security: device management needs a session; revocation needs a valid CSRF token; one user cannot see or revoke another user's device; a device cookie alone does not authenticate; the device exemption keeps the per-address and account-and-address limits.
+- **Not covered in the browser:** the account-wide delay being bypassed by a device during a distributed attack. Reproducing it needs twenty failures from twenty addresses, which one browser cannot produce; the backend tests do this (`test_rotating_addresses_cannot_lock_out_the_account_owner`, `test_owner_with_a_device_token_signs_in_during_a_distributed_attack`). Session expiry by inactivity or the 12-hour limit is covered by backend tests with an injected clock.
+- **No real waits.** Expiry is produced by setting `expires_at` in the disposable database; no test waits for a device lifetime.
+- **Accounts.** On a disposable stack the administration CLI creates accounts (`app.cli create-user`, password on standard input), so the public registration limit (five per address per hour, D-066) does not apply. Without a disposable stack, accounts are created through registration, and the suite must run on a fresh stack.
+- **Where it runs.** The tests change their deployment, so they run only against a disposable stack. `infrastructure/scripts/smoke_test.py --e2e` runs them against the `aegis-smoke` project, through nginx, PostgreSQL and Valkey, with the administrator it creates. Scenarios that need a database or service step are skipped unless `AEGIS_E2E_COMPOSE_PROJECT` names a Compose project other than `aegis`, which the tests refuse. Credentials, SQL and tokens are never placed on a command line, and failure messages do not contain them.
+- **Environment.** `AEGIS_E2E_BASE_URL` (default `http://127.0.0.1:8080`), `AEGIS_E2E_ADMIN_EMAIL`, `AEGIS_E2E_ADMIN_PASSWORD`, and for the service steps `AEGIS_E2E_COMPOSE_PROJECT` and `AEGIS_E2E_COMPOSE_FILE`.
+- **CI (approved 2026-11-17).** The Containers job in `.github/workflows/ci.yml` sets up Node.js from `apps/frontend/.nvmrc` (the same pinned `actions/setup-node` as the frontend job), installs the locked frontend dependencies with `npm ci`, installs Chromium with `npx playwright install --with-deps chromium`, and runs `smoke_test.py --build --e2e`. The browser tests run against the disposable `aegis-smoke` project, which the job creates and removes; the development project and its volumes are never accessed. No secret is used: the administrator's credentials are generated per run and exist only in the job's memory. The workflow keeps its read-only token, its pinned action commit hashes, `persist-credentials: false`, and the 40-minute job timeout. Playwright reports and traces are not uploaded as artifacts, so that typed values cannot leave the job. A failed browser test fails the job (the smoke test exits non-zero). The workflow was checked locally by parsing it and by running the same command here; **the GitHub Actions run has not been observed yet, so no remote pass is claimed.**
+
+- **Location (deviation from D-014).** D-014 places end-to-end tests in the repository's root `tests/` directory. They are in `apps/frontend/e2e/` instead, because `@playwright/test` is installed with the frontend and Node resolves it from the test file's location. This deviation needs the project owner's decision: either D-014 is amended to the frontend location, or the tests move and a link to the frontend dependencies is set up.
+
+**Affects:** CLAUDE.md §10 (end-to-end testing); CONTRIBUTING §7; SYSTEM_ARCHITECTURE §14.5.

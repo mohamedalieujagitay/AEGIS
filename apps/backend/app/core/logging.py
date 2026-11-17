@@ -15,7 +15,7 @@ import logging
 import re
 import sys
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Any, Final, TextIO
 
 from app.core.config import Settings
 from app.core.request_context import request_id_var
@@ -91,15 +91,19 @@ class TextFormatter(logging.Formatter):
         super().__init__("%(asctime)s %(levelname)-7s %(name)s [%(request_id)s] %(message)s")
 
 
-def configure_logging(settings: Settings, service: str = SERVICE_NAME) -> None:
+def configure_logging(
+    settings: Settings, service: str = SERVICE_NAME, stream: TextIO | None = None
+) -> None:
     """Route application and server logs through one handler.
 
     ``service`` names the process in JSON records (the API by default).
+    Logs go to standard output unless another ``stream`` is given (the CLI
+    uses standard error, keeping its output for results).
 
     Safe to call more than once: the AEGIS handler is replaced, and handlers
     added by others (for example test harnesses) are kept.
     """
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(stream if stream is not None else sys.stdout)
     handler.set_name(HANDLER_NAME)
     handler.addFilter(RequestIdFilter())
     handler.setFormatter(

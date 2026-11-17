@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from helpers import AegisTestClient
 
 from app.core.config import Settings
 from app.core.logging import (
@@ -101,7 +101,7 @@ def test_http_client_url_logging_is_suppressed() -> None:
 def test_each_request_is_logged_once_without_query_string(
     make_app: MakeApp, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    client = TestClient(make_app())
+    client = AegisTestClient(make_app())
     capsys.readouterr()
     response = client.get("/api/v1/test/items", params={"page": 2, "token": "query-secret"})
     assert response.status_code == 200
@@ -120,7 +120,7 @@ def test_each_request_is_logged_once_without_query_string(
 def test_request_bodies_are_not_logged(
     make_app: MakeApp, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    client = TestClient(make_app())
+    client = AegisTestClient(make_app())
     capsys.readouterr()
     client.post("/api/v1/test/items", json={"name": "a", "password": "body-secret"})
     client.post("/api/v1/test/items", json={"password": "body-secret", "bad": 1})
@@ -130,7 +130,7 @@ def test_request_bodies_are_not_logged(
 def test_server_errors_are_logged_at_error_level_with_traceback(
     make_app: MakeApp, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    client = TestClient(make_app(), raise_server_exceptions=False)
+    client = AegisTestClient(make_app(), raise_server_exceptions=False)
     capsys.readouterr()
     response = client.get("/api/v1/test/crash")
     request_id = response.headers[REQUEST_ID_HEADER]
@@ -148,7 +148,7 @@ def test_server_errors_are_logged_at_error_level_with_traceback(
 
 
 def test_safe_client_request_id_is_reused(make_app: MakeApp) -> None:
-    response = TestClient(make_app()).get(
+    response = AegisTestClient(make_app()).get(
         "/api/v1/nothing", headers={REQUEST_ID_HEADER: "client-abc-123"}
     )
     assert response.headers[REQUEST_ID_HEADER] == "client-abc-123"
@@ -157,7 +157,9 @@ def test_safe_client_request_id_is_reused(make_app: MakeApp) -> None:
 
 @pytest.mark.parametrize("unsafe", ["short", "x" * 65, "has spaces in it", 'inject}{"a":1'])
 def test_unsafe_client_request_id_is_replaced(make_app: MakeApp, unsafe: str) -> None:
-    response = TestClient(make_app()).get("/api/v1/nothing", headers={REQUEST_ID_HEADER: unsafe})
+    response = AegisTestClient(make_app()).get(
+        "/api/v1/nothing", headers={REQUEST_ID_HEADER: unsafe}
+    )
     generated = response.headers[REQUEST_ID_HEADER]
     assert generated != unsafe
     assert len(generated) == 32

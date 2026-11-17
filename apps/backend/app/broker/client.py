@@ -16,8 +16,13 @@ from app.core.config import Settings
 
 logger = logging.getLogger("app.broker")
 
-MAX_CONNECTIONS = 4
-"""Connections kept by the API's broker client (readiness checks only)."""
+MAX_CONNECTIONS = 16
+"""Connections the API may hold at once. Requests use them from a thread pool
+(up to 40 threads), so the pool must be larger than the typical burst of
+concurrent sign-ins; see BLOCKING_TIMEOUT_SECONDS."""
+BLOCKING_TIMEOUT_SECONDS = 5
+"""How long a request waits for a free connection before it fails. A request that
+times out fails closed (sign-in answers 503), like any other broker failure."""
 
 
 class Broker:
@@ -40,8 +45,10 @@ class Broker:
             use_tls = bool(options.pop("ssl"))
             if not use_tls:
                 options = _without_tls(options)
-            pool = redis.ConnectionPool(
+            # redis-py ships no type annotations for this class in this release.
+            pool = redis.BlockingConnectionPool(  # type: ignore[no-untyped-call]
                 max_connections=MAX_CONNECTIONS,
+                timeout=BLOCKING_TIMEOUT_SECONDS,
                 connection_class=redis.SSLConnection if use_tls else redis.Connection,
                 **options,
             )

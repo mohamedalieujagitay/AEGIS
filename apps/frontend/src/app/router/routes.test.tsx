@@ -1,7 +1,9 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider, type RouteObject } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthRoot, RequireAuth } from '../../features/authentication/components/RouteGuards'
+import { mockApi, signedIn } from '../../test/apiMock'
 import { AppLayout } from '../layout/AppLayout'
 import { RouteErrorPage } from '../pages/RouteErrorPage'
 import { paths } from './paths'
@@ -21,6 +23,10 @@ function primaryNav() {
 }
 
 describe('application routes', () => {
+  beforeEach(() => {
+    mockApi(signedIn())
+  })
+
   it('renders the overview page inside the application shell', async () => {
     renderAt(paths.overview)
 
@@ -68,9 +74,22 @@ describe('application routes', () => {
     }
     const failingRoutes: RouteObject[] = [
       {
-        Component: AppLayout,
+        Component: AuthRoot,
         children: [
-          { ErrorBoundary: RouteErrorPage, children: [{ path: '/', Component: BrokenPage }] },
+          {
+            Component: RequireAuth,
+            children: [
+              {
+                Component: AppLayout,
+                children: [
+                  {
+                    ErrorBoundary: RouteErrorPage,
+                    children: [{ path: '/', Component: BrokenPage }],
+                  },
+                ],
+              },
+            ],
+          },
         ],
       },
     ]

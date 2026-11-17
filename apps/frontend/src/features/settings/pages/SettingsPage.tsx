@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useId,
   useRef,
   useState,
@@ -32,6 +33,10 @@ import {
   buttonStyles,
   fieldClasses,
 } from '../../../components/ui'
+import { authApi, type AuthOptions } from '../../authentication/api'
+import { useCurrentUser } from '../../authentication/authContext'
+import { InstanceAdministration } from '../../authentication/components/InstanceAdministration'
+import { TrustedDevices } from '../../authentication/components/TrustedDevices'
 import { notAvailableYet } from '../../../lib/availability'
 import { cx } from '../../../lib/cx'
 
@@ -107,7 +112,7 @@ function WorkspacePanel() {
           Workspace Settings
         </span>
         <p className="mb-5 rounded-control border border-chart-blue/25 bg-chart-blue/8 p-3.5 text-sm text-fg-muted">
-          Workspace settings become available after sign-in.
+          Workspace settings become available with workspace management.
         </p>
         <form className="flex flex-col gap-5" onSubmit={(event) => event.preventDefault()}>
           <div className="grid gap-3.5 sm:grid-cols-2">
@@ -235,41 +240,88 @@ function MembersPanel() {
       <EmptyState
         icon={UsersIcon}
         title="No members yet"
-        description="Existing users can be invited after sign-in, with one of four roles: Owner, Admin, Analyst or Viewer."
+        description="Existing users can be invited once workspaces are available, with one of four roles: Owner, Admin, Analyst or Viewer."
       />
     </section>
   )
 }
 
 function SecurityPanel() {
+  const user = useCurrentUser()
+  const [options, setOptions] = useState<AuthOptions>()
+  const [optionsError, setOptionsError] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    authApi
+      .options(controller.signal)
+      .then(setOptions)
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setOptionsError(true)
+        }
+      })
+    return () => controller.abort()
+  }, [])
+
   return (
-    <section className={cx(panelClasses, 'max-w-215')} aria-label="Security">
-      <PanelHeader
-        icon={ShieldCheckIcon}
-        title="Security"
-        description="Authentication and access controls."
-      />
-      <ul>
-        <SettingRow
-          title="Only assess authorized assets"
-          description="Always enforced. Targets must be inside a verified or attested scope before any assessment can run."
-        >
-          <Badge tone="success">Always on</Badge>
-        </SettingRow>
-        <SettingRow
-          title="Session expiration"
-          description="Sign users out after a period of inactivity. Configurable once authentication is available."
-        >
-          <Badge tone="neutral">Not available yet</Badge>
-        </SettingRow>
-        <SettingRow
-          title="Login rate limiting"
-          description="Limit repeated sign-in attempts. Part of the authentication system."
-        >
-          <Badge tone="neutral">Not available yet</Badge>
-        </SettingRow>
-      </ul>
-    </section>
+    <div className="flex max-w-215 flex-col gap-6">
+      <section className={panelClasses} aria-label="Security">
+        <PanelHeader
+          icon={ShieldCheckIcon}
+          title="Security"
+          description="Authentication and access controls."
+        />
+        <ul>
+          <SettingRow
+            title="Only assess authorized assets"
+            description="Always enforced. Targets must be inside a verified or attested scope before any assessment can run."
+          >
+            <Badge tone="success">Always on</Badge>
+          </SettingRow>
+          <SettingRow
+            title="Session expiration"
+            description={
+              options
+                ? `Signed out after ${options.session_idle_timeout_minutes} minutes of inactivity, and after ${options.session_absolute_timeout_hours} hours in any case. Set by the server configuration.`
+                : 'Sessions end after a period of inactivity and after a maximum lifetime.'
+            }
+          >
+            {options ? (
+              <Badge tone="success">On</Badge>
+            ) : (
+              <Badge tone="neutral">{optionsError ? 'Unavailable' : 'Loading…'}</Badge>
+            )}
+          </SettingRow>
+          <SettingRow
+            title="Login rate limiting"
+            description="Repeated failed sign-ins are slowed down per address and per account, without locking accounts."
+          >
+            <Badge tone="success">Always on</Badge>
+          </SettingRow>
+        </ul>
+      </section>
+
+      <section className={panelClasses} aria-label="Trusted devices">
+        <PanelHeader
+          icon={ShieldCheckIcon}
+          title="Trusted devices"
+          description="Browsers that skip the account-wide sign-in delay. Only you can see and revoke yours."
+        />
+        <TrustedDevices />
+      </section>
+
+      {user.is_instance_admin && (
+        <section className={panelClasses} aria-label="Instance administration">
+          <PanelHeader
+            icon={CrownIcon}
+            title="Instance administration"
+            description="Settings for this AEGIS instance. Only instance administrators see this section."
+          />
+          <InstanceAdministration />
+        </section>
+      )}
+    </div>
   )
 }
 

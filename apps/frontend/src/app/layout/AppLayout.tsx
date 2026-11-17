@@ -11,6 +11,7 @@ import {
 } from '../../components/icons/icons'
 import { SideNav } from '../../components/layout/SideNav'
 import { SkipLink } from '../../components/layout/SkipLink'
+import { UserMenu } from '../../features/authentication/components/UserMenu'
 import { cx } from '../../lib/cx'
 import { APP_NAME } from '../../lib/documentTitle'
 import { primaryNavigation } from '../navigation/navigation'
@@ -47,13 +48,14 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 /**
- * Workspace area. Workspaces arrive with authentication (Phase 02), so this
- * shows an honest empty state rather than a sample workspace.
+ * Workspace area. Workspaces arrive with workspace management (roadmap
+ * Phase 02), so this shows an honest empty state rather than a sample
+ * workspace.
  */
 function WorkspaceStatus({ collapsed = false }: { collapsed?: boolean }) {
   return (
     <div
-      title={collapsed ? 'No workspace: available after sign-in' : undefined}
+      title={collapsed ? 'No workspace: not available yet' : undefined}
       className={cx(
         'flex items-center gap-3 rounded-xl border border-line bg-surface',
         collapsed ? 'justify-center p-2.5' : 'px-4 py-3.5',
@@ -67,7 +69,7 @@ function WorkspaceStatus({ collapsed = false }: { collapsed?: boolean }) {
       </span>
       <span className={cx('flex min-w-0 flex-col leading-tight', collapsed && 'sr-only')}>
         <strong className="truncate text-[0.90625rem] text-fg-heading">No workspace</strong>
-        <small className="truncate text-[0.78125rem] text-fg-subtle">Available after sign-in</small>
+        <small className="truncate text-[0.78125rem] text-fg-subtle">Not available yet</small>
       </span>
     </div>
   )
@@ -226,6 +228,7 @@ export function AppLayout() {
               <HelpIcon className="size-6.5" />
               <span className="sr-only">Help (not available yet)</span>
             </button>
+            <UserMenu />
           </div>
         </header>
 

@@ -8,10 +8,11 @@ import anyio
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from helpers import AegisTestClient
 
 from app.core.config import Environment, Settings
 from app.core.request_context import REQUEST_ID_HEADER
-from app.main import OPENAPI_PATH, create_app
+from app.main import create_app
 from app.services.health import ReadinessChecker
 
 LIVE = "/api/v1/health/live"
@@ -143,7 +144,7 @@ def test_readiness_reflects_recovery_after_the_cache_period() -> None:
 
 
 def test_readiness_is_documented_with_its_503_response() -> None:
-    schema = TestClient(_app()).get(OPENAPI_PATH).json()
+    schema = _app().openapi()
     operation = schema["paths"][READY]["get"]
     reference = operation["responses"]["503"]["content"]["application/json"]["schema"]
     assert reference["$ref"] == "#/components/schemas/ErrorResponse"
@@ -324,7 +325,7 @@ def test_unexpected_errors_in_health_endpoints_are_still_logged(
 def test_other_requests_to_health_paths_keep_normal_logging(
     caplog: pytest.LogCaptureFixture, method: str, path: str, status: int
 ) -> None:
-    client = TestClient(_app())
+    client = AegisTestClient(_app())
     with caplog.at_level(logging.INFO, logger="app.request"):
         assert client.request(method, path).status_code == status
     [record] = _request_records(caplog)

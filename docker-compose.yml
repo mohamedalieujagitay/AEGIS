@@ -172,11 +172,18 @@ services:
     environment:
       <<: [*backend-environment, *database-environment, *valkey-environment]
       AEGIS_VALKEY_USERNAME: aegis-api
+      # Origins allowed to send state-changing requests (CSRF check, D-065).
+      # nginx forwards the Host header without the port, so the published
+      # address must be listed. Set AEGIS_ALLOWED_ORIGINS when AEGIS is
+      # reached under another name, for example https://aegis.example.org.
+      AEGIS_ALLOWED_ORIGINS: ${AEGIS_ALLOWED_ORIGINS:-http://127.0.0.1:${AEGIS_HTTP_PORT:-8080},http://localhost:${AEGIS_HTTP_PORT:-8080}}
     secrets:
       - source: postgres_app_password
         target: aegis_database_password
       - source: valkey_api_password
         target: aegis_valkey_password
+      # CSRF token signing and rate-limit key names (D-065, D-066).
+      - aegis_secret_key
     tmpfs: [/tmp]
     # edge: frontend proxy and outbound DNS for scope validation.
     # ingest: the result ingestion listener (Phase 03+; nothing listens yet).
@@ -358,3 +365,5 @@ secrets:
     file: ${AEGIS_SECRETS_DIR:-./secrets}/valkey_healthcheck_password
   valkey_users.acl:
     file: ${AEGIS_SECRETS_DIR:-./secrets}/valkey_users.acl
+  aegis_secret_key:
+    file: ${AEGIS_SECRETS_DIR:-./secrets}/aegis_secret_key

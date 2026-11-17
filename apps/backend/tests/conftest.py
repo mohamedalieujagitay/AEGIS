@@ -6,6 +6,7 @@ from pathlib import Path
 import psycopg
 import pytest
 from fastapi import APIRouter, FastAPI, Query
+from helpers import TEST_SECRET_KEY, FakeClock, MemoryRateLimitStore
 from postgres_harness import PostgresServer, find_postgres_bin, temporary_postgres
 from psycopg import sql
 from pydantic import Field
@@ -28,6 +29,8 @@ def _isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Itera
     for name in list(os.environ):
         if name.startswith("AEGIS_"):
             monkeypatch.delenv(name)
+    # A fixed server secret, as every deployment has (DECISIONS.md D-065).
+    monkeypatch.setenv("AEGIS_SECRET_KEY", TEST_SECRET_KEY)
     monkeypatch.chdir(tmp_path)
     get_settings.cache_clear()
     yield
@@ -131,3 +134,62 @@ def database_settings(postgres_server: PostgresServer) -> Iterator[Settings]:
             connection.execute(
                 sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
             )
+
+
+@pytest.fixture
+def migrated_settings(database_settings: Settings) -> Settings:
+    """``database_settings`` with all migrations applied."""
+    from alembic import command
+    from alembic.config import Config
+
+    from app.database.session import Database
+
+    backend = Path(__file__).resolve().parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    config.set_main_option("script_location", str(backend / "migrations"))
+    config.attributes["configure_logger"] = False
+    database = Database(database_settings)
+    try:
+        with database.engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+    finally:
+        database.dispose()
+    return database_settings
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    """Control the application clock (``app.core.clock.utcnow``)."""
+    import app.core.clock
+
+    fake = FakeClock()
+    monkeypatch.setattr(app.core.clock, "utcnow", fake)
+    return fake
+
+
+@pytest.fixture
+def make_auth_app(
+    migrated_settings: Settings, clock: FakeClock
+) -> Iterator[Callable[..., FastAPI]]:
+    """Create real applications on a migrated database, with in-memory rate-limit counters.
+
+    Keyword arguments override settings. Database connections are closed afterwards.
+    """
+    created: list[FastAPI] = []
+
+    def factory(**overrides: object) -> FastAPI:
+        application = create_app(migrated_settings.model_copy(update=overrides))
+        application.state.auth.limiter._store = MemoryRateLimitStore(clock)
+        created.append(application)
+        return application
+
+    yield factory
+    for application in created:
+        application.state.database.dispose()
+
+
+@pytest.fixture
+def auth_app(make_auth_app: Callable[..., FastAPI]) -> FastAPI:
+    """The real application on a migrated database, with in-memory rate-limit counters."""
+    return make_auth_app()

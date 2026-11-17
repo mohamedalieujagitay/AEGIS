@@ -2,7 +2,8 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 #
-# - Development settings: API documentation at http://127.0.0.1:8000/api/docs,
+# - Development settings: API documentation at http://127.0.0.1:8000/api/docs
+#   (instance administrators only),
 #   readable text logs.
 # - The API is also published on 127.0.0.1:8000, with live reload of
 #   apps/backend/app (mounted read-only). For frontend work, run

@@ -21,6 +21,12 @@ dependencies = [
   "celery[redis]>=5.7.0,<5.8",
   # Protocol client for Valkey (MIT), also used by the readiness check.
   "redis>=8.1.0,<9",
+  # Argon2id password hashing (MIT; DECISIONS.md D-062).
+  "argon2-cffi>=25.1.0,<26",
+  # Reviewed version of argon2-cffi's compiled bindings (MIT, with libargon2
+  # under CC0-1.0 OR Apache-2.0 compiled in). Kept explicit so the lock does
+  # not move to an unreviewed release; raise it only after the same review.
+  "argon2-cffi-bindings==26.1.0",
 ]
 
 [project.optional-dependencies]
@@ -89,6 +95,8 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 # Tests use plain asserts and fixed, non-secret placeholder passwords.
 "tests/**" = ["S101", "S105", "S106"]
+# The administration CLI reports its results on standard output.
+"app/cli.py" = ["T201"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI dependency and parameter declarations are evaluated once, by design.

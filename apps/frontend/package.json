@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.e2e.json",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
     "format": "prettier --write .",
@@ -17,7 +17,8 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run format:check",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "react": "^19.3.1",
@@ -25,6 +26,7 @@
     "react-router": "^8.5.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "^4.3.5",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",

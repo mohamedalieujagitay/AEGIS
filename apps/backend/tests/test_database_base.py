@@ -16,9 +16,17 @@ def test_metadata_uses_naming_convention() -> None:
     assert Base.metadata.naming_convention == {**MetaData().naming_convention, **NAMING_CONVENTION}
 
 
-def test_no_business_models_exist_yet() -> None:
-    # Business models are added by the roadmap phases that build each feature.
-    assert Base.metadata.tables == {}
+def test_only_implemented_models_exist() -> None:
+    # Business models are added by the roadmap phases that build each feature;
+    # so far only authentication (roadmap task 2.1).
+
+    assert set(Base.metadata.tables) == {
+        "users",
+        "user_sessions",
+        "password_reset_tokens",
+        "trusted_devices",
+        "instance_settings",
+    }
 
 
 def test_model_conventions() -> None:

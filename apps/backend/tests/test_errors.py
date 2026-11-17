@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from helpers import AegisTestClient
 
 from app.core.errors import AppError
 from app.core.request_context import REQUEST_ID_HEADER
@@ -21,14 +21,14 @@ def _assert_error_envelope(body: dict[str, object], code: str, request_id: str) 
 
 
 def test_unknown_route_returns_standard_404(make_app: MakeApp) -> None:
-    response = TestClient(make_app()).get("/api/v1/nothing-here")
+    response = AegisTestClient(make_app()).get("/api/v1/nothing-here")
     assert response.status_code == 404
     _assert_error_envelope(response.json(), "not_found", response.headers[REQUEST_ID_HEADER])
     assert response.json()["error"]["message"] == "Not Found."
 
 
 def test_wrong_method_returns_405_with_allow_header(make_app: MakeApp) -> None:
-    response = TestClient(make_app()).delete("/api/v1/test/items")
+    response = AegisTestClient(make_app()).delete("/api/v1/test/items")
     assert response.status_code == 405
     _assert_error_envelope(
         response.json(), "method_not_allowed", response.headers[REQUEST_ID_HEADER]
@@ -38,7 +38,7 @@ def test_wrong_method_returns_405_with_allow_header(make_app: MakeApp) -> None:
 
 
 def test_application_error_uses_its_status_code_and_message(make_app: MakeApp) -> None:
-    response = TestClient(make_app()).get("/api/v1/test/missing")
+    response = AegisTestClient(make_app()).get("/api/v1/test/missing")
     assert response.status_code == 404
     _assert_error_envelope(response.json(), "item_not_found", response.headers[REQUEST_ID_HEADER])
     assert response.json()["error"]["message"] == "The item does not exist."
@@ -52,7 +52,7 @@ def test_app_error_message_can_be_overridden() -> None:
 def test_unexpected_error_hides_internal_details(
     make_app: MakeApp, caplog: pytest.LogCaptureFixture
 ) -> None:
-    client = TestClient(make_app(), raise_server_exceptions=False)
+    client = AegisTestClient(make_app(), raise_server_exceptions=False)
     with caplog.at_level(logging.INFO):
         response = client.get("/api/v1/test/crash")
 
@@ -72,5 +72,5 @@ def test_unexpected_error_hides_internal_details(
 
 
 def test_error_responses_omit_empty_details(make_app: MakeApp) -> None:
-    body = TestClient(make_app()).get("/api/v1/nothing-here").json()
+    body = AegisTestClient(make_app()).get("/api/v1/nothing-here").json()
     assert "details" not in body["error"]

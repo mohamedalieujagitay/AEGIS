@@ -16,6 +16,9 @@ outside and from inside the containers:
   PostgreSQL, has no database credentials, and its Valkey user cannot touch
   the internal namespace or run administrative commands;
 - tasks are routed through Valkey to the right worker role;
+- authentication: CLI account creation, sign-in with secure cookies, CSRF
+  protection, sessions, sign-out, administrator password reset, rate
+  limiting in Valkey, and no secrets in the logs;
 - containers run as non-root with read-only root filesystems, no
   capabilities, no-new-privileges, resource limits and no Docker socket;
 - only the frontend port is published, on 127.0.0.1;
@@ -29,8 +32,10 @@ Docker CLI; no shell is used.
 """
 
 import argparse
+import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -114,6 +119,9 @@ def run(
 class Stack:
     def __init__(self, secrets_dir: Path) -> None:
         self.secrets_dir = secrets_dir
+        # The administrator created by check_authentication, for the browser tests.
+        self.admin_email = ""
+        self.admin_password = ""
         self.env = os.environ | {
             "AEGIS_SECRETS_DIR": str(secrets_dir),
             "AEGIS_SUBNET_PREFIX": SUBNET_PREFIX,
@@ -528,10 +536,42 @@ def check_isolation(stack: Stack, results: Results) -> None:
     )
 
     api = _isolation(
-        stack, "backend", postgres_ip, [*FORBIDDEN_FOR_ALL, ["BRPOP", "internal.default", "1"]]
+        stack,
+        "backend",
+        postgres_ip,
+        [
+            *FORBIDDEN_FOR_ALL,
+            ["BRPOP", "internal.default", "1"],
+            # Rate-limit commands only on rate-limit keys (D-066).
+            ["SET", "internal.default", "x"],
+            ["DEL", "_kombu.binding.internal"],
+            ["INCRBY", "other:smoke", "1"],
+            ["GET", "ratelimit:smoke"],
+            ["KEYS", "ratelimit:*"],
+        ],
     )
     results.check(
-        "API's Valkey user can only send tasks", all(api["denied"].values()), str(api["denied"])
+        "API's Valkey user can only send tasks and use rate-limit counters",
+        all(api["denied"].values()),
+        str(api["denied"]),
+    )
+    allowed = _isolation(
+        stack,
+        "backend",
+        postgres_ip,
+        [
+            ["INCRBY", "ratelimit:smoke", "1"],
+            ["EXPIRE", "ratelimit:smoke", "60", "NX"],
+            ["MGET", "ratelimit:smoke"],
+            ["PTTL", "ratelimit:smoke"],
+            ["SET", "ratelimit:smoke-block", "1", "PX", "1000"],
+            ["DEL", "ratelimit:smoke", "ratelimit:smoke-block"],
+        ],
+    )
+    results.check(
+        "API's Valkey user can use rate-limit counters",
+        not any(allowed["denied"].values()),
+        str(allowed["denied"]),
     )
 
     for service, expected in EXPECTED_NETWORKS.items():
@@ -604,6 +644,383 @@ def check_task_routing(stack: Stack, results: Results) -> None:
         "no Valkey permission errors in any log",
         "NOPERM" not in all_logs and "NoPermissionError" not in all_logs,
     )
+
+
+@dataclass
+class Browser:
+    """A minimal browser for the authentication checks.
+
+    It keeps cookies itself, because urllib does not send ``Secure`` cookies
+    over plain HTTP (browsers do for 127.0.0.1, see the Chromium check). It
+    records each Set-Cookie header so the cookie attributes can be checked.
+    """
+
+    cookies: dict[str, str] = field(default_factory=dict)
+    set_cookie_headers: list[str] = field(default_factory=list)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, str], Any]:
+        connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=15)
+        all_headers = {"Accept": "application/json", **(headers or {})}
+        if self.cookies:
+            all_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+        payload = None
+        if body is not None:
+            payload = json.dumps(body)
+            all_headers["Content-Type"] = "application/json"
+        try:
+            connection.request(method, path, body=payload, headers=all_headers)
+            response = connection.getresponse()
+            raw = response.read().decode()
+            for header in response.headers.get_all("Set-Cookie") or []:
+                self.set_cookie_headers.append(header)
+                name, _, rest = header.partition("=")
+                value = rest.split(";", 1)[0].strip().strip('"')
+                if value and "max-age=0" not in header.lower():
+                    self.cookies[name] = value
+                else:
+                    self.cookies.pop(name, None)
+            data = json.loads(raw) if raw else None
+            return response.status, {k.lower(): v for k, v in response.getheaders()}, data
+        finally:
+            connection.close()
+
+    def post(
+        self, path: str, body: dict[str, Any] | None = None, token: str = "", **extra: str
+    ) -> tuple[int, dict[str, str], Any]:
+        headers = {"Origin": BASE_URL, **extra}
+        if token:
+            headers["X-CSRF-Token"] = token
+        return self.request("POST", path, body, headers)
+
+    def csrf(self) -> str:
+        status, _, data = self.request("GET", "/api/v1/auth/csrf")
+        if status != 200:
+            raise RuntimeError(f"GET /api/v1/auth/csrf returned {status}")
+        token: str = data["csrf_token"]
+        return token
+
+    def login(self, email: str, password: str) -> tuple[int, Any]:
+        status, _, data = self.post(
+            "/api/v1/auth/login", {"email": email, "password": password}, self.csrf()
+        )
+        return status, data
+
+
+def _cookie_attributes(header: str) -> set[str]:
+    return {part.strip().split("=", 1)[0].lower() for part in header.split(";")[1:]}
+
+
+def _cli(stack: Stack, *args: str, password: str) -> subprocess.CompletedProcess[str]:
+    """Run the administration CLI in the API container; the password goes to stdin."""
+    return stack.exec(
+        "backend", "python", "-m", "app.cli", *args, "--password-stdin", stdin=password + "\n"
+    )
+
+
+def check_authentication(stack: Stack, results: Results) -> None:
+    """Authentication on the real stack (roadmap 2.1, DECISIONS.md D-061 to D-068)."""
+    # Random passphrases that pass the policy (no username or email local part).
+    admin_password = "correct horse battery " + os.urandom(6).hex()
+    stack.admin_email = "admin@smoke.test"
+    stack.admin_password = admin_password
+    user_password = "purple monkey dishwasher " + os.urandom(6).hex()
+    new_password = "tangerine lighthouse orbit " + os.urandom(6).hex()
+    api = "/api/v1/auth"
+
+    created = _cli(
+        stack,
+        "create-admin",
+        "--email",
+        "admin@smoke.test",
+        "--username",
+        "smokeadmin",
+        password=admin_password,
+    )
+    results.check(
+        "CLI creates the first administrator (password from standard input)",
+        created.returncode == 0 and "Created instance administrator" in created.stdout,
+        created.stderr[-300:],
+    )
+    results.check(
+        "CLI output contains no password", admin_password not in created.stdout + created.stderr
+    )
+    created = _cli(
+        stack,
+        "create-user",
+        "--email",
+        "user@smoke.test",
+        "--username",
+        "smokeuser",
+        password=user_password,
+    )
+    results.check("CLI creates a user", created.returncode == 0, created.stderr[-300:])
+
+    anonymous = Browser()
+    status, _, _ = anonymous.request("GET", f"{api}/me")
+    results.check("unauthenticated requests are refused", status == 401, str(status))
+    status, _, data = anonymous.post(
+        f"{api}/login", {"email": "user@smoke.test", "password": user_password}
+    )
+    results.check(
+        "sign-in without a CSRF token is refused (login CSRF)",
+        status == 403 and data["error"]["code"] == "csrf_failed",
+        str(status),
+    )
+    status, _, _ = anonymous.post(
+        f"{api}/login",
+        {"email": "user@smoke.test", "password": user_password},
+        anonymous.csrf(),
+        Origin="https://evil.example",
+    )
+    results.check("a cross-origin sign-in is refused", status == 403, str(status))
+    anonymous_token = anonymous.csrf()
+
+    user = Browser()
+    status, data = user.login("user@smoke.test", user_password)
+    results.check("sign-in succeeds through the frontend proxy", status == 200, str(status))
+    expected = {"httponly", "secure", "samesite", "path"}
+    for name in ("__Host-aegis_session", "__Host-aegis_csrf"):
+        cookies = [h for h in user.set_cookie_headers if h.startswith(name + "=")]
+        last = cookies[-1] if cookies else ""
+        results.check(
+            f"{name} is HttpOnly, Secure, SameSite=Strict, Path=/, without Domain or expiry",
+            _cookie_attributes(last) == expected
+            and "samesite=strict" in last.lower()
+            and "path=/" in last.lower(),
+            json.dumps(sorted(_cookie_attributes(last))),  # attribute names only, never the value
+        )
+    session_token = user.cookies.get("__Host-aegis_session", "")
+    results.check(
+        "the session token is not in the response body",
+        bool(session_token) and session_token not in json.dumps(data),
+    )
+    user_csrf = data["csrf_token"] if status == 200 else ""
+    status, _, me = user.request("GET", f"{api}/me")
+    results.check(
+        "the session identifies the user",
+        status == 200 and me["username"] == "smokeuser",
+        str(status),
+    )
+    # Trusted browsers (D-070): listed without their token, and revocable one by one.
+    status, _, devices = user.request("GET", f"{api}/devices")
+    results.check(
+        "the signed-in browser is listed as trusted, without its token",
+        status == 200
+        and isinstance(devices, list)
+        and len(devices) == 1
+        and devices[0]["current"] is True
+        and session_token not in json.dumps(devices)
+        and user.cookies.get("__Host-aegis_device", "") not in json.dumps(devices),
+        str(status),
+    )
+    device_id = (
+        devices[0]["id"] if status == 200 and devices else "00000000-0000-4000-8000-000000000000"
+    )
+    status, _, _ = user.request(
+        "DELETE",
+        f"{api}/devices/{device_id}",
+        headers={"Origin": BASE_URL, "X-CSRF-Token": "not-the-token"},
+    )
+    results.check(
+        "revoking a device without a valid CSRF token is refused", status == 403, str(status)
+    )
+    status, _, _ = user.request(
+        "DELETE",
+        f"{api}/devices/{device_id}",
+        headers={"Origin": BASE_URL, "X-CSRF-Token": user_csrf},
+    )
+    results.check(
+        "the signed-in user can revoke their own trusted browser", status == 204, str(status)
+    )
+    status, _, after = user.request("GET", f"{api}/devices")
+    results.check(
+        "a revoked trusted browser is no longer listed",
+        status == 200 and after == [],
+        str(after),
+    )
+    user.cookies["__Host-aegis_csrf"] = anonymous_token
+    status, _, _ = user.post(f"{api}/logout", token=anonymous_token)
+    results.check("an anonymous CSRF token is refused once signed in", status == 403, str(status))
+    user.cookies["__Host-aegis_csrf"] = user_csrf
+
+    admin = Browser()
+    status, data = admin.login("admin@smoke.test", admin_password)
+    admin_csrf = data["csrf_token"] if status == 200 else ""
+    status, _, _ = user.post("/api/v1/admin/password-resets", {"email": "x@smoke.test"}, user_csrf)
+    results.check("only instance administrators can issue reset links", status == 403, str(status))
+    status, headers, issued = admin.post(
+        "/api/v1/admin/password-resets", {"email": "user@smoke.test"}, admin_csrf
+    )
+    reset_token = issued["reset_token"] if status == 201 else ""
+    results.check(
+        "administrator issues a reset link (token in the URL fragment)",
+        status == 201
+        and issued["reset_path"] == f"/reset-password#token={reset_token}"
+        and headers.get("cache-control") == "no-store",
+        str(status),
+    )
+    forged = "v1.0.forged.signature"  # deliberately invalid CSRF token
+    status, _, _ = user.post(f"{api}/logout", token=forged)
+    results.check("an invalid CSRF token is refused", status == 403, str(status))
+
+    visitor = Browser()
+    status, _, _ = visitor.post(
+        f"{api}/password/reset",
+        {"token": reset_token, "new_password": new_password},
+        visitor.csrf(),
+    )
+    results.check("the reset link sets a new password", status == 204, str(status))
+    status, _, _ = user.request("GET", f"{api}/me")
+    results.check("a password reset signs out every session", status == 401, str(status))
+    status, _, _ = visitor.post(
+        f"{api}/password/reset",
+        {"token": reset_token, "new_password": "another passphrase 123"},
+        visitor.csrf(),
+    )
+    results.check("reset links are single-use", status == 400, str(status))
+    status, _ = Browser().login("user@smoke.test", user_password)
+    results.check("the old password no longer works", status == 401, str(status))
+
+    fresh = Browser()
+    status, data = fresh.login("user@smoke.test", new_password)
+    results.check("the new password works", status == 200, str(status))
+    stolen = fresh.cookies.get("__Host-aegis_session", "")
+    status, _, _ = fresh.post(f"{api}/logout", token=data["csrf_token"] if status == 200 else "")
+    results.check("sign-out succeeds", status == 204, str(status))
+    replay = Browser(cookies={"__Host-aegis_session": stolen})
+    status, _, _ = replay.request("GET", f"{api}/me")
+    results.check("a signed-out session cannot be replayed", status == 401, str(status))
+
+    attacker = Browser()
+    statuses = [attacker.login("admin@smoke.test", "wrong password guess")[0] for _ in range(6)]
+    status, headers, data = attacker.post(
+        f"{api}/login",
+        {"email": "admin@smoke.test", "password": admin_password},
+        attacker.csrf(),
+    )
+    results.check(
+        "repeated failures are throttled in Valkey (429 with Retry-After)",
+        statuses == [401] * 6 and status == 429 and headers.get("retry-after") == "30",
+        f"{statuses} then {status} {headers.get('retry-after')}",
+    )
+    results.check(
+        "throttled responses are generic",
+        status == 429 and data["error"]["code"] == "too_many_requests",
+    )
+
+    logs = stack.compose("logs", "--no-color", "backend").stdout
+    for event in (
+        "auth.login_succeeded",
+        "auth.login_failed",
+        "auth.csrf_rejected",
+        "auth.password_reset_issued",
+        "auth.password_reset_completed",
+        "auth.logout",
+        "auth.rate_limited",
+    ):
+        results.check(f"security event logged: {event}", f'"event": "{event}"' in logs)
+    leaked = [
+        label
+        for label, value in (
+            ("admin password", admin_password),
+            ("user password", user_password),
+            ("new password", new_password),
+            ("session token", session_token),
+            ("reset token", reset_token),
+            ("CSRF token", user_csrf),
+            ("secret key", stack.secret("aegis_secret_key")),
+        )
+        if value and value in logs
+    ]
+    results.check("no passwords, tokens or secret key in the API logs", not leaked, str(leaked))
+    results.check("no email addresses in the API logs", "smoke.test" not in logs)
+
+
+def check_browser(stack: Stack, results: Results) -> None:
+    """Run the Playwright authentication tests against this stack (roadmap 2.1, CLAUDE.md §10).
+
+    They need Node.js, the frontend's dependencies (npm ci) and Playwright's
+    Chromium (npx playwright install chromium). The tests create accounts in this
+    disposable stack only. Output is scrubbed of the generated passwords.
+    """
+    npx = shutil.which("npx")
+    if npx is None:
+        results.check("Node.js (npx) is available for the browser tests", False)
+        return
+    # The throttling checks above leave a short block on the administrator's
+    # address. Wait for the block to end before the browser run signs in as it.
+    administrator_ready = wait_for(
+        lambda: _signs_in(stack.admin_email, stack.admin_password), timeout=90, interval=2
+    )
+    if not administrator_ready:
+        results.check("the administrator can sign in for the browser tests", False)
+        return
+    env = stack.env | {
+        # The browser tests may run service steps in this disposable project only.
+        "AEGIS_E2E_COMPOSE_PROJECT": PROJECT,
+        "AEGIS_E2E_COMPOSE_FILE": str(ROOT / "docker-compose.yml"),
+        "AEGIS_E2E_BASE_URL": BASE_URL,
+        "AEGIS_E2E_ADMIN_EMAIL": stack.admin_email,
+        "AEGIS_E2E_ADMIN_PASSWORD": stack.admin_password,
+    }
+    # Fixed arguments; the working directory is the frontend project.
+    result = subprocess.run(  # noqa: S603
+        [npx, "playwright", "test"],
+        cwd=ROOT / "apps" / "frontend",
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
+    )
+    # Playwright's list reporter ends with counts such as "15 passed" and "2 skipped".
+    # Failed-test titles and their first lines are kept as well.
+    summary = "\n".join(
+        line.strip()
+        for line in (result.stdout + result.stderr).splitlines()
+        if re.match(r"^\s*(\d+ (passed|failed|skipped|flaky|did not run)|\d+\) )", line)
+        or line.strip().startswith(("✘", "Error"))
+    )[-1500:]
+    summary = summary.replace(stack.admin_password, "[REDACTED]")
+    # Printed on every run, so the counts are visible even when the step passes.
+    print(f"Playwright summary:\n{summary or '(no summary lines)'}")
+    results.check(
+        "browser tests pass (Playwright, chromium)",
+        result.returncode == 0,
+        summary or f"exit {result.returncode}",
+    )
+
+
+def _signs_in(email: str, password: str) -> bool:
+    connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=15)
+    try:
+        connection.request("GET", "/api/v1/auth/csrf", headers={"Accept": "application/json"})
+        csrf_response = connection.getresponse()
+        csrf_body = json.loads(csrf_response.read().decode())
+        cookies = [c.split(";", 1)[0] for c in csrf_response.headers.get_all("Set-Cookie") or []]
+        connection.close()
+        connection = http.client.HTTPConnection("127.0.0.1", HTTP_PORT, timeout=15)
+        connection.request(
+            "POST",
+            "/api/v1/auth/login",
+            body=json.dumps({"email": email, "password": password}),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Origin": BASE_URL,
+                "X-CSRF-Token": csrf_body["csrf_token"],
+                "Cookie": "; ".join(cookies),
+            },
+        )
+        return connection.getresponse().status == 200
+    finally:
+        connection.close()
 
 
 def check_valkey_healthcheck(stack: Stack, results: Results) -> None:
@@ -823,6 +1240,11 @@ def main() -> int:
     parser.add_argument(
         "--keep", action="store_true", help="leave the aegis-smoke stack and secrets in place"
     )
+    parser.add_argument(
+        "--e2e",
+        action="store_true",
+        help="also run the Playwright browser tests (needs Node.js and Chromium; see CONTRIBUTING)",
+    )
     args = parser.parse_args()
 
     secrets_dir = Path(tempfile.mkdtemp(prefix="aegis-smoke-secrets-"))
@@ -856,18 +1278,24 @@ def main() -> int:
         print("Starting all services...")
         stack.compose("up", "--detach", "--wait", "--wait-timeout", "300", timeout=600)
 
-        for step in (
+        steps = [
             check_health,
             check_http,
             check_database,
             check_isolation,
             check_task_routing,
+            check_authentication,
+        ]
+        if args.e2e:
+            steps.append(check_browser)
+        steps += [
             check_valkey_healthcheck,
             check_probe_logging,
             check_container_security,
             check_images,
             check_shutdown,
-        ):
+        ]
+        for step in steps:
             print(f"--- {step.__name__.removeprefix('check_').replace('_', ' ')}")
             try:
                 step(stack, results)
