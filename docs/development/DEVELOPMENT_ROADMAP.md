@@ -4,10 +4,25 @@
 **Project:** AEGIS — Open-Source Cybersecurity Intelligence & Assessment Platform  
 **Version:** 1.1  
 **Status:** Approved  
-**Last Updated:** 2026-11-15  
+**Last Updated:** 2026-11-18  
 **Related:** [PROJECT_VISION.md](../PROJECT_VISION.md) · [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md) · [SYSTEM_ARCHITECTURE.md](../architecture/SYSTEM_ARCHITECTURE.md) · [DECISIONS.md](../architecture/DECISIONS.md)  
 **Initial Release Target:** v0.1.0  
 **License:** Apache 2.0 (subject to dependency and licensing review)
+
+---
+
+# MILESTONE STATUS
+
+Progress against this roadmap. The plan below is unchanged; this table records what has been completed and verified.
+
+| Milestone | Status | Evidence |
+|---|---|---|
+| Phase 1 — Project Foundation | Closed | Commit `2cc6a83`; CI fix `5f06f5a` |
+| Phase 2.1 — Authentication | Closed | Commits `e380686`, `33f94ae`, `50e2210`; DECISIONS.md D-061 to D-074 |
+| Phase 2.1 maintenance | Closed | Commit `519e700`; CI run 44308675940 |
+| Phase 2.2 — User Management | Closed | Commit `d1228fd`; DECISIONS.md D-075; CI run 44308675940 |
+| picomatch security remediation (GHSA-fc5q-39xc-vjpf) | Implemented and verified; the upstream advisory remains open (no fixed release) | Commit `361e190`; DECISIONS.md D-076; CI run 44308675940 |
+| Phase 2.3 — Workspace Management | Ready to begin; not started | Section 2.3 below |
 
 ---
 

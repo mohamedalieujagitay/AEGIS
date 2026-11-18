@@ -82,8 +82,8 @@ This register records approved product and architecture decisions. Changing one 
 | D-072 | Reset-token cleanup, CLI operator record, startup preparation and broker pool | 2026-11-17 | Implemented |
 | D-073 | End-to-end authentication and trusted-device tests with Playwright, in CI | 2026-11-17 | Approved by the project owner (2026-11-17); running in the Containers CI job since run 44124113383; see D-074 |
 | D-074 | Phase 2.1 closed with one registration browser-test failure unexplained | 2026-11-17 | Approved by the project owner (2026-11-17); see the section below |
-| D-075 | Account management: profile, password and sessions (Phase 2.2) | 2026-11-17 | Implemented; verification pending the remote CI run |
-| D-076 | Locally maintained security patch for picomatch (GHSA-fc5q-39xc-vjpf) | 2026-11-18 | Implemented and verified locally; upstream advisory open (no fixed release) |
+| D-075 | Account management: profile, password and sessions (Phase 2.2) | 2026-11-17 | Implemented; verified locally and in CI (run 44308675940); Phase 2.2 closed |
+| D-076 | Locally maintained security patch for picomatch (GHSA-fc5q-39xc-vjpf) | 2026-11-18 | Implemented; verified locally and in CI (run 44308675940); upstream advisory open (no fixed release) |
 
 ---
 
