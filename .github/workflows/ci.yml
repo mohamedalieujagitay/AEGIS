@@ -94,6 +94,14 @@ jobs:
           ruff format --check scripts
           mypy --strict --python-version 3.11 scripts/init_dev_secrets.py scripts/smoke_test.py
 
+      - name: Test the infrastructure scripts (pytest)
+        # The smoke test's output filter and its marker are tested here (DECISIONS.md D-073).
+        working-directory: infrastructure
+        run: |
+          ruff check tests
+          ruff format --check tests
+          python -m pytest tests -q
+
       - name: Check import boundaries (import-linter)
         run: lint-imports
 
@@ -126,6 +134,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+
+      # Blocks high and critical advisories in packages that ship with the
+      # application (the frontend image contains only the built files). Advisories
+      # in build and test tools are not a gate here; they are checked with a full
+      # `npm audit` by hand until they are fixed.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Type check (tsc)
         run: npm run typecheck

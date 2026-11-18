@@ -182,6 +182,15 @@ describe('registration', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }))
   }
 
+  it('shows the registration form when the instance allows it', async () => {
+    mockApi({ ...signedOut(), ...open })
+    renderAt(paths.register)
+
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument()
+    expect(screen.queryByText(/Open registration is turned off/)).not.toBeInTheDocument()
+  })
+
   it('explains when registration is turned off', async () => {
     mockApi(signedOut())
     renderAt(paths.register)

@@ -294,6 +294,21 @@ def test_logout_without_a_session_succeeds(auth_app: FastAPI) -> None:
 # --- registration -------------------------------------------------------------
 
 
+def test_a_registration_setting_change_is_seen_by_the_next_request(auth_app: FastAPI) -> None:
+    """The browser tests enable registration and read it at once (commit before response)."""
+    make_user(auth_app, "admin@example.com", "admin", admin=True)
+    administrator = sign_in(auth_app, "admin@example.com")
+    visitor = AegisTestClient(auth_app)
+    assert visitor.get(f"{AUTH}/options").json()["registration_enabled"] is False
+
+    for enabled in (True, False, True):
+        response = administrator.put(
+            "/api/v1/admin/settings/registration", json={"enabled": enabled}
+        )
+        assert response.status_code == 200
+        assert visitor.get(f"{AUTH}/options").json()["registration_enabled"] is enabled
+
+
 def test_registration_is_disabled_by_default(auth_app: FastAPI, db: Session) -> None:
     response = AegisTestClient(auth_app).post(
         f"{AUTH}/register",

@@ -5,3 +5,5 @@ extend = "../apps/backend/pyproject.toml"
 
 [lint.per-file-ignores]
 "scripts/*.py" = ["T201"]
+# Tests use plain asserts and fixed, non-secret placeholder passwords (as in apps/backend).
+"tests/*.py" = ["S101", "S105"]

@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Page, type Response, type TestInfo } from '@playwright/test'
 import {
   administratorApi,
   createAccount,
@@ -94,33 +94,79 @@ test.describe('protected routes', () => {
 })
 
 /*
- * Diagnostics for a failed registration test, written to the job log. Only the
- * status of the options request, a boolean, the URL path, whether the form is
- * shown, the application's own alert text and the first line of the failure are
- * printed. Never a password, email address, cookie, token or CSRF value.
+ * Diagnostics for a failed registration test, written to the job log. Every
+ * line starts with DIAGNOSTICS_MARKER, which smoke_test.py keeps. Only HTTP
+ * status codes, a boolean, the URL path, whether the form is shown, the
+ * application's own alert text and the first line of the failure are printed.
+ * Never a password, email address, cookie, token or CSRF value.
  */
-let optionsReport = 'not requested'
+const DIAGNOSTICS_MARKER = '[registration diagnostics]'
+const OPTIONS_PATH = '/api/v1/auth/options'
+const SESSION_PATH = '/api/v1/auth/me'
 
-function recordOptionsRequest(page: Page): void {
-  optionsReport = 'not requested'
+/** The last status seen for each auth endpoint, for the failure report. */
+const seen = new Map<string, number>()
+
+function recordAuthResponses(page: Page): void {
+  seen.clear()
   page.on('response', (response) => {
-    if (!new URL(response.url()).pathname.endsWith('/api/v1/auth/options')) {
-      return
+    const path = new URL(response.url()).pathname
+    if (path === OPTIONS_PATH || path === SESSION_PATH) {
+      seen.set(path, response.status())
     }
-    optionsReport = `status ${response.status()}`
-    response.json().then(
-      (body: unknown) => {
-        const enabled =
-          typeof body === 'object' && body !== null && 'registration_enabled' in body
-            ? String(body.registration_enabled)
-            : 'missing'
-        optionsReport += `, registration_enabled ${enabled}`
-      },
-      () => {
-        optionsReport += ', body unreadable'
-      },
-    )
   })
+}
+
+function statusOf(path: string): string {
+  const status = seen.get(path)
+  return status === undefined ? 'no response' : `status ${status}`
+}
+
+/**
+ * How long one auth response may take. A missing response is then reported by
+ * name instead of as a wait that uses up the whole test budget. The test's own
+ * timeout (30 s) is unchanged.
+ */
+const RESPONSE_TIMEOUT_MS = 10_000
+
+/**
+ * Waits for the next response from an auth endpoint, with a named failure if it
+ * does not arrive. Call it before the action that causes the response, so the
+ * response cannot be missed.
+ */
+function nextResponse(page: Page, path: string, where: string): Promise<Response> {
+  const response = page
+    .waitForResponse((candidate) => new URL(candidate.url()).pathname === path, {
+      timeout: RESPONSE_TIMEOUT_MS,
+    })
+    .catch((error: unknown) => {
+      throw new Error(
+        `No response from ${path} on the ${where} within ${RESPONSE_TIMEOUT_MS / 1000} s`,
+        { cause: error },
+      )
+    })
+  // Marks the rejection as handled, so it is not reported before the test awaits it.
+  response.catch(() => undefined)
+  return response
+}
+
+/**
+ * The registration options must be readable and must allow registration. A
+ * failed request is reported by name instead of waiting for a form that never appears.
+ */
+async function expectRegistrationOpen(response: Response, where: string): Promise<void> {
+  expect(response.status(), `GET ${OPTIONS_PATH} on the ${where}`).toBe(200)
+  const body: unknown = await response.json()
+  const enabled =
+    typeof body === 'object' && body !== null && 'registration_enabled' in body
+      ? body.registration_enabled
+      : undefined
+  expect(enabled, `registration_enabled in ${OPTIONS_PATH} on the ${where}`).toBe(true)
+}
+
+/** A visitor without a session gets 401 from the session check; any other status is reported by name. */
+async function expectSignedOutSession(response: Response): Promise<void> {
+  expect(response.status(), `GET ${SESSION_PATH} for a signed-out visitor`).toBe(401)
 }
 
 async function reportRegistrationFailure(page: Page, testInfo: TestInfo): Promise<void> {
@@ -135,21 +181,24 @@ async function reportRegistrationFailure(page: Page, testInfo: TestInfo): Promis
     .filter((line) => line.includes('waiting for'))
     .slice(0, 3)
   const lines = [
-    `[registration diagnostics] ${testInfo.title}`,
-    `  test status: ${testInfo.status}`,
-    `  failure: ${failure.split('\n')[0] ?? 'none'}`,
-    ...waiting.map((line) => `  ${line.trim()}`),
-    `  /auth/options: ${optionsReport}`,
-    `  current path: ${new URL(page.url()).pathname}`,
-    `  registration form shown: ${formShown}`,
-    `  visible alerts: ${alerts.length > 0 ? alerts.join(' | ') : 'none'}`,
+    testInfo.title,
+    `test status: ${testInfo.status}`,
+    `failure: ${failure.split('\n')[0] ?? 'none'}`,
+    ...waiting.map((line) => `waiting: ${line.trim()}`),
+    `${OPTIONS_PATH}: ${statusOf(OPTIONS_PATH)}`,
+    `${SESSION_PATH}: ${statusOf(SESSION_PATH)}`,
+    `current path: ${new URL(page.url()).pathname}`,
+    `registration form shown: ${formShown}`,
+    `visible alerts: ${alerts.length > 0 ? alerts.join(' | ') : 'none'}`,
   ]
-  process.stdout.write(`${lines.join('\n')}\n`)
+  for (const line of lines) {
+    process.stdout.write(`${DIAGNOSTICS_MARKER} ${line}\n`)
+  }
 }
 
 test.describe('registration', () => {
   test.beforeEach(({ page }) => {
-    recordOptionsRequest(page)
+    recordAuthResponses(page)
   })
 
   test.afterEach(async ({ page }, testInfo) => {
@@ -183,9 +232,20 @@ test.describe('registration', () => {
     const api = await administratorApi(baseURL ?? '')
     try {
       await setRegistration(api, true)
+
+      // Each response is awaited before the step that depends on it, so a failed
+      // request is reported by name instead of as a 30-second wait for the form.
+      const sessionCheck = nextResponse(page, SESSION_PATH, 'sign-in page')
+      const signInOptions = nextResponse(page, OPTIONS_PATH, 'sign-in page')
       await page.goto('/login')
+      await expectSignedOutSession(await sessionCheck)
+      await expectRegistrationOpen(await signInOptions, 'sign-in page')
+
+      const registerOptions = nextResponse(page, OPTIONS_PATH, 'registration page')
       await page.getByRole('link', { name: 'Create one' }).click()
       await expect(page).toHaveURL(/\/register$/)
+      await expectRegistrationOpen(await registerOptions, 'registration page')
+      await expect(page.getByLabel('Email address')).toBeVisible()
 
       await page.getByLabel('Email address').fill(user.email)
       await page.getByLabel('Username').fill(user.username)

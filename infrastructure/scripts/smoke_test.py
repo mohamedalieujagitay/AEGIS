@@ -942,6 +942,52 @@ def check_authentication(stack: Stack, results: Results) -> None:
     results.check("no email addresses in the API logs", "smoke.test" not in logs)
 
 
+REGISTRATION_DIAGNOSTICS = "[registration diagnostics]"
+"""Prefix of the lines the registration browser test prints on failure (authentication.spec.ts)."""
+SUMMARY_LINE = re.compile(r"^\s*(\d+ (passed|failed|skipped|flaky|did not run)|\d+\) )")
+MAX_SUMMARY_CHARS = 1500
+MAX_DIAGNOSTIC_CHARS = MAX_SUMMARY_CHARS // 4
+MAX_DIAGNOSTIC_LINES = 30
+TRUNCATED = " [truncated]"
+
+
+def _redact(text: str, secrets: Sequence[str]) -> str:
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "[REDACTED]")
+    return text
+
+
+def playwright_summary(output: str, secrets: Sequence[str]) -> str:
+    """Keep what a CI log needs from Playwright's output and nothing else.
+
+    Kept: the count lines, failed-test titles, error lines and the registration
+    diagnostics. The rest of the output (which can contain page text and test
+    values) is not printed. Every line is redacted before anything is cut, so a
+    cut cannot leave part of a secret in the log. Each cut is marked.
+    """
+    # Redact first: cutting first could leave a fragment of a secret unmatched.
+    lines = [_redact(line, secrets) for line in output.splitlines()]
+    summary = "\n".join(
+        line.strip()
+        for line in lines
+        if SUMMARY_LINE.match(line) or line.strip().startswith(("✘", "Error"))
+    )
+    if len(summary) > MAX_SUMMARY_CHARS:
+        summary = "[summary truncated]\n" + summary[-MAX_SUMMARY_CHARS:]
+
+    diagnostics = [line.strip() for line in lines if REGISTRATION_DIAGNOSTICS in line]
+    shown = [
+        line[:MAX_DIAGNOSTIC_CHARS] + TRUNCATED if len(line) > MAX_DIAGNOSTIC_CHARS else line
+        for line in diagnostics[:MAX_DIAGNOSTIC_LINES]
+    ]
+    omitted = len(diagnostics) - len(shown)
+    if omitted:
+        shown.append(f"{REGISTRATION_DIAGNOSTICS} {omitted} more diagnostic line(s) omitted")
+
+    return "\n".join(part for part in (summary, *shown) if part)
+
+
 def check_browser(stack: Stack, results: Results) -> None:
     """Run the Playwright authentication tests against this stack (roadmap 2.1, CLAUDE.md §10).
 
@@ -979,15 +1025,7 @@ def check_browser(stack: Stack, results: Results) -> None:
         timeout=900,
         check=False,
     )
-    # Playwright's list reporter ends with counts such as "15 passed" and "2 skipped".
-    # Failed-test titles and their first lines are kept as well.
-    summary = "\n".join(
-        line.strip()
-        for line in (result.stdout + result.stderr).splitlines()
-        if re.match(r"^\s*(\d+ (passed|failed|skipped|flaky|did not run)|\d+\) )", line)
-        or line.strip().startswith(("✘", "Error"))
-    )[-1500:]
-    summary = summary.replace(stack.admin_password, "[REDACTED]")
+    summary = playwright_summary(result.stdout + result.stderr, [stack.admin_password])
     # Printed on every run, so the counts are visible even when the step passes.
     print(f"Playwright summary:\n{summary or '(no summary lines)'}")
     results.check(
