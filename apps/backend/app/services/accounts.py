@@ -151,6 +151,75 @@ def set_password(db: Session, user: User, new_password: str, now: datetime) -> N
     db.flush()
 
 
+class CurrentPasswordIncorrectError(AppError):
+    status_code = HTTPStatus.BAD_REQUEST
+    code = "current_password_incorrect"
+    message = "The current password is incorrect."
+
+
+class PasswordUnchangedError(AppError):
+    status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+    code = "password_unchanged"
+    message = "Choose a password that is different from the current one."
+
+
+class UsernameUnavailableError(AppError):
+    status_code = HTTPStatus.CONFLICT
+    code = "username_unavailable"
+    message = "This username is not available."
+
+
+def verify_current_password(user: User, password: str, change: str) -> None:
+    """Check the password of a signed-in user before a sensitive change (``change`` is logged).
+
+    The failure names no account and no value: the caller is already signed in.
+    """
+    if not verify_password(user.password_hash, password):
+        security_event(
+            "auth.account_change_refused",
+            "Account change refused: current password incorrect",
+            level=logging.WARNING,
+            change=change,
+            user_id=str(user.id),
+        )
+        raise CurrentPasswordIncorrectError()
+
+
+def change_password(
+    db: Session, user: User, current_password: str, new_password: str, now: datetime
+) -> None:
+    """Change the password of a signed-in user (the caller handles sessions and cookies).
+
+    Checks the current password, that the new one differs, and the policy. Every
+    trusted device is revoked by ``set_password`` (D-070).
+    """
+    verify_current_password(user, current_password, "password")
+    if verify_password(user.password_hash, new_password):
+        raise PasswordUnchangedError()
+    set_password(db, user, new_password, now)
+
+
+def change_username(db: Session, user: User, username: str, current_password: str) -> None:
+    """Change the username of a signed-in user after checking the current password.
+
+    ``username`` must already be normalized. A taken name is reported without
+    naming the account that holds it.
+    """
+    verify_current_password(user, current_password, "username")
+    if username == user.username:
+        return
+    if db.scalar(select(User.id).where(User.username == username, User.id != user.id)) is not None:
+        raise UsernameUnavailableError()
+    user.username = username
+    try:
+        with db.begin_nested():
+            db.flush()
+    except IntegrityError as error:
+        # A concurrent registration or change took the name after the check above.
+        raise UsernameUnavailableError() from error
+    security_event("account.username_changed", "Username changed", user_id=str(user.id))
+
+
 def deactivate(db: Session, user: User, now: datetime) -> None:
     """Deactivate an account: it cannot sign in, and its sessions and devices end at once (D-070).
 

@@ -389,6 +389,15 @@ export function UsersIcon(props: IconProps) {
   )
 }
 
+export function UserIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4.5 20.5c.8-3.9 3.8-6 7.5-6s6.7 2.1 7.5 6" />
+    </Icon>
+  )
+}
+
 export function LinkIcon(props: IconProps) {
   return (
     <Icon {...props}>

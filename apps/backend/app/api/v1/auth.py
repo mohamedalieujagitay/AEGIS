@@ -19,10 +19,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path, Request, Response
 
+from app.api.cookies import NO_STORE, clear_cookie, issue_csrf, set_cookie
 from app.api.dependencies import Auth, CurrentUser, DbSession, client_ip
 from app.core import clock
-from app.core.config import Settings
-from app.core.csrf import csrf_binding, issue_csrf_token
 from app.core.errors import AppError
 from app.core.security_log import security_event
 from app.models.trusted_device import TrustedDevice
@@ -45,39 +44,9 @@ SECONDS_PER_DAY = 86400
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
-NO_STORE = "no-store"
-
 
 def _errors(*statuses: int) -> dict[int | str, dict[str, object]]:
     return {status: {"model": ErrorResponse} for status in statuses}
-
-
-def _set_cookie(
-    response: Response, name: str, value: str, settings: Settings, *, max_age: int | None = None
-) -> None:
-    response.set_cookie(
-        name,
-        value,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="strict",
-        path="/",
-        max_age=max_age,
-    )
-
-
-def _clear_cookie(response: Response, name: str, settings: Settings) -> None:
-    response.delete_cookie(
-        name, path="/", httponly=True, secure=settings.cookie_secure, samesite="strict"
-    )
-
-
-def _issue_csrf(
-    response: Response, auth_settings: Settings, secret: bytes, session_token: str | None
-) -> str:
-    token = issue_csrf_token(secret, csrf_binding(session_token), int(clock.utcnow().timestamp()))
-    _set_cookie(response, auth_settings.csrf_cookie_name, token, auth_settings)
-    return token
 
 
 def _user(user: User) -> UserResponse:
@@ -105,8 +74,8 @@ def _start_session(
         client_ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
-    _set_cookie(response, auth.settings.session_cookie_name, token, auth.settings)
-    csrf_token = _issue_csrf(response, auth.settings, auth.secret, token)
+    set_cookie(response, auth.settings.session_cookie_name, token, auth.settings)
+    csrf_token = issue_csrf(response, auth.settings, auth.secret, token)
     response.headers["Cache-Control"] = NO_STORE
     return SessionResponse(user=_user(user), csrf_token=csrf_token)
 
@@ -116,7 +85,7 @@ def csrf(request: Request, response: Response, auth: Auth) -> CsrfResponse:
     """Issue a CSRF token bound to the browser's session, or ``anonymous`` before sign-in."""
     session_token = request.cookies.get(auth.settings.session_cookie_name)
     response.headers["Cache-Control"] = NO_STORE
-    return CsrfResponse(csrf_token=_issue_csrf(response, auth.settings, auth.secret, session_token))
+    return CsrfResponse(csrf_token=issue_csrf(response, auth.settings, auth.secret, session_token))
 
 
 @router.get("/options", response_model=AuthOptionsResponse, summary="Public sign-in options")
@@ -204,7 +173,7 @@ def login(
             lifetime=timedelta(days=auth.settings.device_trust_days),
             user_agent=request.headers.get("user-agent"),
         )
-        _set_cookie(
+        set_cookie(
             response,
             auth.settings.device_cookie_name,
             token,
@@ -279,7 +248,7 @@ def revoke_device(
     if not trusted_devices.revoke(db, user.id, device_id, "revoked_by_user", now):
         raise DeviceNotFoundError()
     if current is not None and current.id == device_id:
-        _clear_cookie(response, auth.settings.device_cookie_name, auth.settings)
+        clear_cookie(response, auth.settings.device_cookie_name, auth.settings)
     db.commit()
     response.status_code = HTTPStatus.NO_CONTENT
     return response
@@ -292,8 +261,8 @@ def logout(request: Request, response: Response, db: DbSession, auth: Auth) -> R
     if sessions.revoke_session_token(db, token, "logout", clock.utcnow()):
         security_event("auth.logout", "Signed out", client_ip=client_ip(request))
     response.status_code = HTTPStatus.NO_CONTENT
-    _clear_cookie(response, auth.settings.session_cookie_name, auth.settings)
-    _clear_cookie(response, auth.settings.csrf_cookie_name, auth.settings)
+    clear_cookie(response, auth.settings.session_cookie_name, auth.settings)
+    clear_cookie(response, auth.settings.csrf_cookie_name, auth.settings)
     # Commit before responding: the session dependency commits only after the
     # response is returned, so a request that follows this one could read the
     # previous state (found in the browser smoke test, 2026-11-17).
@@ -321,9 +290,9 @@ def reset_password(
     auth.limiter.hit_password_reset(client_ip(request))
     password_reset.redeem_reset_token(db, payload.token, payload.new_password, clock.utcnow())
     response.status_code = HTTPStatus.NO_CONTENT
-    _clear_cookie(response, auth.settings.session_cookie_name, auth.settings)
-    _clear_cookie(response, auth.settings.csrf_cookie_name, auth.settings)
-    _clear_cookie(response, auth.settings.device_cookie_name, auth.settings)
+    clear_cookie(response, auth.settings.session_cookie_name, auth.settings)
+    clear_cookie(response, auth.settings.csrf_cookie_name, auth.settings)
+    clear_cookie(response, auth.settings.device_cookie_name, auth.settings)
     # Commit before responding: the session dependency commits only after the
     # response is returned, so a request that follows this one could read the
     # previous state (found in the browser smoke test, 2026-11-17).

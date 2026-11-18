@@ -82,6 +82,7 @@ This register records approved product and architecture decisions. Changing one 
 | D-072 | Reset-token cleanup, CLI operator record, startup preparation and broker pool | 2026-11-17 | Implemented |
 | D-073 | End-to-end authentication and trusted-device tests with Playwright, in CI | 2026-11-17 | Approved by the project owner (2026-11-17); running in the Containers CI job since run 44124113383; see D-074 |
 | D-074 | Phase 2.1 closed with one registration browser-test failure unexplained | 2026-11-17 | Approved by the project owner (2026-11-17); see the section below |
+| D-075 | Account management: profile, password and sessions (Phase 2.2) | 2026-11-17 | Implemented; verification pending the remote CI run |
 
 ---
 
@@ -921,3 +922,22 @@ Sign-in runs in a 40-thread pool and every reservation uses a Valkey connection.
 **Follow-up.** If the registration test fails again, the diagnostic output identifies the failing operation and page state, and the cause should be recorded here before any change. Do not raise the test timeout or weaken the assertions as a workaround.
 
 **Affects:** CLAUDE.md §10 (end-to-end testing); CLAUDE.md §15 (definition of done); DEVELOPMENT_ROADMAP §2.1.
+
+## D-075 — Account management: profile, password and sessions (Phase 2.2)
+
+**Decision.** The signed-in user can view and change their username, change their password, and see and end their sessions. The scope is the four requirements of roadmap task 2.2 and nothing else. There is no display name, no email change (no email verification exists in v0.1.0), no preferences store, and no self-deactivation or administrator user management.
+
+- **Profile.** `GET` and `PATCH /api/v1/account/profile`. The username change requires the current password. The email address and the creation date are shown; the status is always "Active" for a signed-in user, because inactive accounts cannot sign in.
+- **Password.** `POST /api/v1/account/password`. The current password is verified and the new one must differ and meet the existing policy. On success this browser's session token is rotated (the session row keeps its identifier and expiry, and the previous token stops working), every other session of the account is revoked, every trusted device is revoked (D-070), and this browser's device cookie is cleared, because its device was revoked.
+- **Sessions.** `GET /api/v1/account/sessions` lists active sessions only: not revoked, not expired, and not idle. `DELETE /api/v1/account/sessions/{id}` revokes one session; revoking the current one clears the cookies, as logout does. `POST /api/v1/account/sessions/revoke-others` revokes every other session and leaves trusted devices alone (logout does not revoke them, D-070).
+- **Ownership.** Every session operation is limited to the signed-in account. Another account's session, and an unknown identifier, both return `404 session_not_found`.
+- **Sensitive changes are limited per account.** Username and password changes share a limit of five attempts per account in 15 minutes, every attempt counting. It is separate from the address-based sign-in limits and fails closed when Valkey is unavailable (as the other limits do).
+- **Generic errors.** A wrong current password returns `current_password_incorrect`, which names no account and no value. A taken username returns `username_unavailable` and does not name the holder.
+- **Logging.** `auth.password_changed`, `account.username_changed`, `auth.account_change_refused`, `auth.session_revoked`, `auth.sessions_revoked` and `auth.logout` record identifiers and counts only. No password, token, hash, address or username is logged.
+- **Presentation.** Session responses carry no token, hash or IP address, and the interface shows none. Responses that hold account or session information are `no-store`. Every state-changing request needs a CSRF token (the existing middleware).
+- **Storage.** No migration. The `user_sessions` and `users` tables already hold everything the feature uses.
+- **Shared code.** The session and CSRF cookie helpers moved from `app/api/v1/auth.py` to `app/api/cookies.py`, unchanged in behaviour, so both route modules use one implementation.
+
+**Accepted risks.** A signed-in user can learn whether a username is taken, by trying it (the same concern as SR-007, limited here to users who are already signed in). The stored IP address of each session is kept for the account's own records but is not shown.
+
+**Affects:** PRD FR-AUTH-004 (User Profiles); PRD FR-AUTH-003 (session management); DECISIONS D-070 (trusted devices); DEVELOPMENT_ROADMAP §2.2.

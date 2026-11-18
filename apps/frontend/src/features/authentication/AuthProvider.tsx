@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ApiError, UNAUTHENTICATED_EVENT } from '../../lib/api'
-import { authApi } from './api'
+import { authApi, type User } from './api'
 import { AuthContext, type AuthContextValue, type AuthState } from './authContext'
 
 /**
@@ -81,14 +81,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sessionEnded = useCallback(() => setState({ status: 'anonymous' }), [])
 
+  /** Replace the signed-in user's details after a change made on the account page. */
+  const updateUser = useCallback((user: User) => setState({ status: 'authenticated', user }), [])
+
   const retry = useCallback(() => {
     setState({ status: 'loading' })
     void checkSession(setState)
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ state, signIn, register, signOut, sessionEnded, retry }),
-    [state, signIn, register, signOut, sessionEnded, retry],
+    () => ({ state, signIn, register, signOut, sessionEnded, updateUser, retry }),
+    [state, signIn, register, signOut, sessionEnded, updateUser, retry],
   )
 
   return <AuthContext value={value}>{children}</AuthContext>

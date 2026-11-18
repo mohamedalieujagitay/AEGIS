@@ -15,6 +15,8 @@ export interface AuthContextValue {
   signOut: () => Promise<void>
   /** Mark the browser as signed out after the server ended the session (password reset). */
   sessionEnded: () => void
+  /** Replace the signed-in user's details (after a username change). */
+  updateUser: (user: User) => void
   /** Check the session again (after `unavailable`). */
   retry: () => void
 }

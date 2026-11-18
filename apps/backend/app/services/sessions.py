@@ -128,14 +128,82 @@ def revoke_session_token(db: Session, token: str | None, reason: str, now: datet
     return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
-def revoke_all_sessions(db: Session, user_id: uuid.UUID, reason: str, now: datetime) -> int:
-    """Revoke every session of a user (password reset, D-064). Returns the number revoked."""
-    result = db.execute(
-        update(UserSession)
-        .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
-        .values(revoked_at=now, revoked_reason=reason)
+def revoke_all_sessions(
+    db: Session,
+    user_id: uuid.UUID,
+    reason: str,
+    now: datetime,
+    *,
+    keep_session_id: uuid.UUID | None = None,
+) -> int:
+    """Revoke every session of a user (password reset, D-064). Returns the number revoked.
+
+    ``keep_session_id`` leaves one session active (the browser making a password change).
+    """
+    statement = update(UserSession).where(
+        UserSession.user_id == user_id, UserSession.revoked_at.is_(None)
     )
+    if keep_session_id is not None:
+        statement = statement.where(UserSession.id != keep_session_id)
+    result = db.execute(statement.values(revoked_at=now, revoked_reason=reason))
     return int(result.rowcount)  # type: ignore[attr-defined]
+
+
+def list_active_sessions(
+    db: Session, user_id: uuid.UUID, policy: SessionPolicy, now: datetime
+) -> list[UserSession]:
+    """The user's sessions that could still be used: not revoked, not expired, not idle.
+
+    Newest first. Only the account's own sessions are returned.
+    """
+    return list(
+        db.scalars(
+            select(UserSession)
+            .where(
+                UserSession.user_id == user_id,
+                UserSession.revoked_at.is_(None),
+                UserSession.expires_at > now,
+                UserSession.last_seen_at > now - policy.idle_timeout,
+            )
+            .order_by(UserSession.created_at.desc())
+        ).all()
+    )
+
+
+def revoke_owned_session(
+    db: Session, user_id: uuid.UUID, session_id: uuid.UUID, reason: str, now: datetime
+) -> UserSession | None:
+    """Revoke one active session that belongs to ``user_id``.
+
+    Returns the revoked session, or None when the session does not exist, is not
+    active, or belongs to another account (the caller answers all three alike).
+    """
+    session = db.scalar(
+        select(UserSession).where(
+            UserSession.id == session_id,
+            UserSession.user_id == user_id,
+            UserSession.revoked_at.is_(None),
+        )
+    )
+    if session is None:
+        return None
+    session.revoked_at = now
+    session.revoked_reason = reason
+    return session
+
+
+def rotate_token(db: Session, session: UserSession, now: datetime) -> str:
+    """Give ``session`` a new token; the previous token stops working at once.
+
+    Used after a password change, so a token held by someone else before the
+    change cannot be used afterwards. The session itself (its id, expiry and
+    device) is unchanged.
+    """
+    token = new_token()
+    session.token_hash = hash_token(token)
+    session.last_seen_at = now
+    db.flush()
+    return token
 
 
 def purge_expired_sessions(db: Session, now: datetime, user_id: uuid.UUID | None = None) -> int:

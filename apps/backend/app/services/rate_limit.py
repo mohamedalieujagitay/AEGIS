@@ -63,6 +63,9 @@ from app.core.security_log import security_event
 KEY_PREFIX: Final = "ratelimit:"
 PAIR_FIRST_DELAY_SECONDS: Final = 30
 REGISTRATION_WINDOW_SECONDS: Final = 3600
+SENSITIVE_CHANGE_MAX_ATTEMPTS: Final = 5
+"""Username and password changes per account in the window below. Every attempt counts."""
+SENSITIVE_CHANGE_WINDOW_SECONDS: Final = 900
 IN_FLIGHT_TTL_SECONDS: Final = 60
 """Upper bound on how long an in-flight reservation counts if its request dies."""
 CONCURRENT_RETRY_MILLISECONDS: Final = 1000
@@ -310,6 +313,28 @@ class AuthRateLimiter:
             self._settings.registration_ip_max_attempts,
             REGISTRATION_WINDOW_SECONDS,
         )
+
+    def hit_sensitive_change(self, user_id: str) -> None:
+        """Count one attempt to change the username or password of an account.
+
+        Keyed by account, not address: a signed-in user's current password is
+        what is guessed here, so the limit follows the account. The refusal
+        names no address, because the account's own requests are the subject.
+        """
+        key = self._name("account-change", user_id)
+        with self._guard("account_change"):
+            [count] = self._store.increment([key], SENSITIVE_CHANGE_WINDOW_SECONDS)
+            if count <= SENSITIVE_CHANGE_MAX_ATTEMPTS:
+                return
+            ttl = self._ttl(key)
+        security_event(
+            "auth.rate_limited",
+            "Attempt refused by rate limiting",
+            level=logging.WARNING,
+            scope="account_change",
+            user_id=user_id,
+        )
+        raise TooManyAttemptsError(retry_after=math.ceil(ttl / 1000))
 
     def hit_password_reset(self, client_ip: str) -> None:
         self._hit(

@@ -21,6 +21,7 @@ import {
   SaveIcon,
   ShieldCheckIcon,
   ShieldLogo,
+  UserIcon,
   UsersIcon,
 } from '../../../components/icons/icons'
 import { PageContainer } from '../../../components/layout/PageContainer'
@@ -36,13 +37,18 @@ import {
 import { authApi, type AuthOptions } from '../../authentication/api'
 import { useCurrentUser } from '../../authentication/authContext'
 import { InstanceAdministration } from '../../authentication/components/InstanceAdministration'
+import { ActiveSessions } from '../../authentication/components/ActiveSessions'
+import { PasswordChange } from '../../authentication/components/PasswordChange'
+import { ProfileSettings } from '../../authentication/components/ProfileSettings'
 import { TrustedDevices } from '../../authentication/components/TrustedDevices'
 import { notAvailableYet } from '../../../lib/availability'
 import { cx } from '../../../lib/cx'
 
-type TabId = 'workspace' | 'members' | 'security' | 'integrations' | 'notifications' | 'audit'
+type TabId =
+  'account' | 'workspace' | 'members' | 'security' | 'integrations' | 'notifications' | 'audit'
 
 const tabs: readonly { id: TabId; label: string; icon: ComponentType<{ className?: string }> }[] = [
+  { id: 'account', label: 'Account', icon: UserIcon },
   { id: 'workspace', label: 'Workspace', icon: LayersIcon },
   { id: 'members', label: 'Members', icon: UsersIcon },
   { id: 'security', label: 'Security', icon: ShieldCheckIcon },
@@ -302,6 +308,24 @@ function SecurityPanel() {
         </ul>
       </section>
 
+      <section className={panelClasses} aria-label="Password">
+        <PanelHeader
+          icon={ShieldCheckIcon}
+          title="Password"
+          description="Changing it signs out other browsers and revokes trusted devices."
+        />
+        <PasswordChange />
+      </section>
+
+      <section className={panelClasses} aria-label="Active sessions">
+        <PanelHeader
+          icon={ShieldCheckIcon}
+          title="Active sessions"
+          description="Where your account is signed in. Sign out any session you do not recognise."
+        />
+        <ActiveSessions />
+      </section>
+
       <section className={panelClasses} aria-label="Trusted devices">
         <PanelHeader
           icon={ShieldCheckIcon}
@@ -384,7 +408,21 @@ function AuditPanel() {
   )
 }
 
+function AccountPanel() {
+  return (
+    <section className={cx(panelClasses, 'max-w-215')} aria-label="Account">
+      <PanelHeader
+        icon={UserIcon}
+        title="Account"
+        description="Your profile and the details of your sign-in."
+      />
+      <ProfileSettings />
+    </section>
+  )
+}
+
 const panels: Record<TabId, () => ReactNode> = {
+  account: AccountPanel,
   workspace: WorkspacePanel,
   members: MembersPanel,
   security: SecurityPanel,
