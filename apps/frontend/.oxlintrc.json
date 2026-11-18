@@ -29,5 +29,5 @@
     "eqeqeq": "error",
     "no-console": "warn"
   },
-  "ignorePatterns": ["dist/**", "node_modules/**"]
+  "ignorePatterns": ["dist/**", "node_modules/**", "vendor/**"]
 }

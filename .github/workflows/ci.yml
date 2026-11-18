@@ -135,6 +135,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      # The install's postinstall step patches the picomatch copies bundled in
+      # Prettier and Playwright. This fails unless every installed copy of
+      # picomatch is the reviewed, patched one (DECISIONS.md D-076).
+      - name: Verify the picomatch security patch
+        run: npm run security:picomatch
+
       # Blocks high and critical advisories in packages that ship with the
       # application (the frontend image contains only the built files). Advisories
       # in build and test tools are not a gate here; they are checked with a full

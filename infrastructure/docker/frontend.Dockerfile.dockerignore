@@ -9,6 +9,9 @@
 !apps/frontend/tsconfig.node.json
 !apps/frontend/tsconfig.test.json
 !apps/frontend/src
+!apps/frontend/vendor
+!apps/frontend/scripts/picomatch-security-patch.mjs
+!apps/frontend/scripts/picomatch-guard.js.txt
 !infrastructure/docker/nginx
 
 **/node_modules

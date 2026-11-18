@@ -20,9 +20,15 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
 
 WORKDIR /src
 COPY apps/frontend/package.json apps/frontend/package-lock.json ./
+# picomatch is installed from a patched copy (GHSA-fc5q-39xc-vjpf), so the
+# vendored package and the patch tool must be present before installing.
+COPY apps/frontend/vendor/ ./vendor/
+COPY apps/frontend/scripts/picomatch-security-patch.mjs apps/frontend/scripts/picomatch-guard.js.txt ./scripts/
 # Exact versions from the lock file. Install scripts are disabled: no
-# dependency needs one, and none may run code during the build.
-RUN npm ci --ignore-scripts
+# dependency needs one, and none may run code during the build. The picomatch
+# patch is our own script, run explicitly, and the build fails if any installed
+# copy of picomatch is still unpatched.
+RUN npm ci --ignore-scripts     && node scripts/picomatch-security-patch.mjs apply     && node scripts/picomatch-security-patch.mjs verify
 
 COPY apps/frontend/ ./
 RUN npm run build

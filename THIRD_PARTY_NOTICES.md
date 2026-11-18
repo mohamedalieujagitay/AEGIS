@@ -186,6 +186,7 @@ Obligations:
 | Asset | Purpose | License | Status | Notes |
 |---|---|---|---|---|
 | Swagger UI 5.35.0 (`swagger-ui-dist`) | API documentation page | Apache-2.0 | Planned | Three files vendored in `apps/backend/app/static/swagger-ui/` with the package's `LICENSE`, `NOTICE` ("swagger-ui, Copyright 2020-2021 SmartBear Software Inc.") and `swagger-ui-bundle.js.LICENSE.txt` (bundled components: MIT, and DOMPurify under Apache-2.0 or MPL-2.0). Served only when API documentation is enabled. Copied from the npm tarball (integrity verified); the package's `@scarf/scarf` install-time analytics dependency is never installed (DECISIONS.md D-056). |
+| picomatch 4.0.7, patched | Glob matching for the frontend build and test tools (Vite, Vitest, tinyglobby, fdir) | MIT | **Reviewed** | Vendored in `apps/frontend/vendor/picomatch/` with the package's unchanged `LICENSE` ("Copyright (c) 2017-present, Jon Schlinkert."). Copied from the npm tarball (integrity verified; identical to the upstream source at tag `4.0.7`) with a local security patch for GHSA-fc5q-39xc-vjpf / CVE-2026-112366 and the development fields removed from `package.json`; see `vendor/picomatch/AEGIS-PATCH.md` and DECISIONS.md D-076. A development and build dependency only: nothing from it is in the frontend image. The same patch is applied at install time to the copies of picomatch bundled in Prettier 3.10.1 and Playwright 1.64.1 (both MIT, not redistributed by AEGIS). |
 
 ## Frontend Packages
 

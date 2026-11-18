@@ -83,6 +83,7 @@ This register records approved product and architecture decisions. Changing one 
 | D-073 | End-to-end authentication and trusted-device tests with Playwright, in CI | 2026-11-17 | Approved by the project owner (2026-11-17); running in the Containers CI job since run 44124113383; see D-074 |
 | D-074 | Phase 2.1 closed with one registration browser-test failure unexplained | 2026-11-17 | Approved by the project owner (2026-11-17); see the section below |
 | D-075 | Account management: profile, password and sessions (Phase 2.2) | 2026-11-17 | Implemented; verification pending the remote CI run |
+| D-076 | Locally maintained security patch for picomatch (GHSA-fc5q-39xc-vjpf) | 2026-11-18 | Implemented and verified locally; upstream advisory open (no fixed release) |
 
 ---
 
@@ -941,3 +942,37 @@ Sign-in runs in a 40-thread pool and every reservation uses a Valkey connection.
 **Accepted risks.** A signed-in user can learn whether a username is taken, by trying it (the same concern as SR-007, limited here to users who are already signed in). The stored IP address of each session is kept for the account's own records but is not shown.
 
 **Affects:** PRD FR-AUTH-004 (User Profiles); PRD FR-AUTH-003 (session management); DECISIONS D-070 (trusted devices); DEVELOPMENT_ROADMAP §2.2.
+
+## D-076 — Locally maintained security patch for picomatch (GHSA-fc5q-39xc-vjpf)
+
+**This is a locally maintained remediation, not an upstream fix.** It removes the vulnerable behaviour from every copy of picomatch in the frontend's installed tree. The advisory itself stays open, and the full `npm audit` keeps reporting it, until picomatch publishes a fixed release.
+
+**Advisory.** GHSA-fc5q-39xc-vjpf / CVE-2026-112366 (high, CVSS 7.5, CWE-1333). picomatch through 4.0.7 compiles a repeated extglob (`+(...)` or `*(...)`) whose branch nests an ambiguous quantifier into a regular expression that backtracks exponentially. The existing guard in picomatch examines only patterns with more than one branch.
+
+**Why no upstream release.** The affected range is every published version (`<= 4.0.7`); 4.0.7 is the latest release and no patched version exists. At decision time eleven competing fix pull requests (#237, #238, #246, #257–#264) were open and unmerged, and none had been accepted by the maintainers. Every release line of Vite (6–8), Vitest (3–5) and tinyglobby requires picomatch 4, and the older majors (2.3.2, 3.0.2) were measured to be equally vulnerable, so no compatible version or replacement removes it. No maintained fork exists.
+
+**The three affected copies.** `npm ls` shows one package (`picomatch@4.0.7`, used by Vite 8.3.8, Vitest 5.1.0, tinyglobby 0.2.17 and fdir 6.5.0). A scan of every installed JavaScript file found two more, compiled into other tools' own files and invisible to `npm ls`, `npm audit` and npm overrides: an older picomatch in Prettier 3.10.1 (`prettier/index.mjs`, reachable through Prettier's configuration API) and in Playwright 1.64.1 (`playwright/lib/matchers/expect.js`, from its bundled Jest utilities; no input path to it was found).
+
+**Decision.** One self-contained guard (`apps/frontend/scripts/picomatch-guard.js.txt`) is added to picomatch's `analyzeRepeatedExtglob` in all three copies. A repeated extglob is reported as risky when a branch contains a star that is neither escaped, inside a bracket expression, nor the start of a nested extglob (`*(`), or when a branch is exactly one nested group whose alternatives picomatch's own multi-branch rules flag (empty, star-only or overlapping). picomatch then matches the pattern as literal text, the treatment it already gives risky multi-branch patterns.
+
+- **picomatch package:** the official 4.0.7 tarball (integrity verified; identical to the upstream source at tag `4.0.7`) is vendored in `apps/frontend/vendor/picomatch/` with the guard and with the development fields removed from `package.json` (npm installs a linked directory's development dependencies). It replaces every `picomatch` dependency through `devDependencies` and an npm `overrides` entry. The licence is kept unchanged (THIRD_PARTY_NOTICES).
+- **Bundled copies:** `scripts/picomatch-security-patch.mjs apply` (run on `postinstall`) inserts the guard. Each target is pinned to an exact package version and to the SHA-256 of its unpatched file; anything else is refused. The Docker build runs it explicitly after `npm ci --ignore-scripts`, so dependency install scripts stay disabled.
+- **Verification:** `scripts/picomatch-security-patch.mjs verify` (`npm run security:picomatch`) scans every installed JavaScript file for a copy of the picomatch engine and fails unless `node_modules/picomatch` resolves to the vendored copy and the copies found are exactly the three expected ones, each guarded, at its reviewed version and matching the SHA-256 of its reviewed patched file. It runs in the frontend CI job after a clean install and in the frontend image build. Negative tests confirmed it fails for an unpatched bundle, an unexpected copy, a bundle changed after review, a non-vendored package, a removed guard and a missing package, and that `apply` refuses an unreviewed version.
+
+**Evidence (local, Windows and Linux).**
+
+- Exploit patterns measured in child processes with a 5-second limit: `+(*a)`, `*(*a)`, `+(**a)` and `+(*a|b)` took 0.7–1.3 s at 24 characters and were killed at 28; `+(*)`, `+(*.js)`, `+(a*b)`, `+(*[a])`, `+(*)c` and `*(a*|b)` took 0.9–4.4 s at 24; `*(W*, *)` was killed at 20; `+(@(a|aa))` took 245 ms at 30 and 1.7 s at 34. Patched, every case took under 10 ms, also at 5,000 and 50,000 characters.
+- Prettier's public API with a `+(*a)` override glob: 6.1 s at a 26-character path before, 6–8 ms up to 1,000 characters after.
+- 144 compilations of 36 ordinary globs (including Vite's and Vitest's defaults and AEGIS's own patterns) with four option sets produce byte-identical regular expressions before and after.
+- picomatch's own test suite: 1,979 of 1,983 tests pass.
+- The frontend image contains no picomatch code.
+
+**Behaviour change.** Repeated extglobs with a bare star in a branch, or wrapping one group of overlapping alternatives, match only their literal text. The four failing upstream tests assert the old behaviour for exactly such patterns: `isMatch('abc', '+(*)c')` (in two tests), `isMatch('ax', '*(a*|b)')` and `isMatch('my/folder (Work, Accts)', '*/*(W*, *)*')`. Each of these patterns was measured to be exploitable in the original (`+(*)c` 4.0 s and `*(a*|b)` 0.9 s at 24 characters, `*(W*, *)` killed at 20), so the change is the fix itself. Keeping them working safely would need a semantics-preserving rewrite of the regular expression, which is what the unmerged upstream pull requests attempt. No AEGIS configuration, and no Vite or Vitest default, uses such a pattern.
+
+**Remaining risks.** The full `npm audit` reports six high findings for this chain: it matches the package by name and version, and the vendored copy truthfully keeps version 4.0.7 (the version is not altered to silence it). The production audit gate (`npm audit --omit=dev --audit-level=high`) is unaffected and clean. The patch is AEGIS's own code: it has not been reviewed by the picomatch maintainers. Copies of picomatch outside the frontend project (for example in globally installed tools) are not covered.
+
+**Maintenance.** A Prettier or Playwright upgrade stops `npm ci` until the new bundle is reviewed and the pins in `scripts/picomatch-security-patch.mjs` are updated. A Vite, Vitest or tinyglobby upgrade keeps receiving the vendored copy through the override. Recheck the advisory and the upstream pull requests at each dependency review.
+
+**Removal.** When picomatch publishes a fixed release and Vite, Vitest, tinyglobby, Prettier and Playwright adopt it: delete `apps/frontend/vendor/picomatch/`, the `picomatch` entries in `devDependencies` and `overrides`, the `postinstall` and `security:picomatch` scripts, `scripts/picomatch-*`, the CI step, the Dockerfile lines and the `.prettierignore` and `.oxlintrc.json` entries for `vendor/`; run `npm install`; confirm the full `npm audit` no longer reports the advisory; and record the removal here.
+
+**Affects:** `apps/frontend/package.json`, `apps/frontend/package-lock.json`, `apps/frontend/vendor/picomatch/`, `apps/frontend/scripts/picomatch-*`, `.github/workflows/ci.yml`, `infrastructure/docker/frontend.Dockerfile` (and its `.dockerignore`), THIRD_PARTY_NOTICES (Vendored Assets).

@@ -1,0 +1,65 @@
+  // AEGIS security patch for GHSA-fc5q-39xc-vjpf / CVE-2026-112366.
+  // A repeated extglob (`+(...)` or `*(...)`) backtracks exponentially when a
+  // branch nests an ambiguous quantifier inside the repetition:
+  // - a star that is neither escaped, inside a bracket expression, nor the start
+  //   of a nested extglob (`*(`), also with a single branch such as `+(*a)`;
+  // - a branch that is exactly one nested group whose alternatives the check
+  //   above flags (empty, star-only or overlapping), such as `+(@(a|aa))`.
+  // Such a pattern is treated as risky, so it is matched literally, as picomatch
+  // already does for the risky multi-branch cases.
+  const aegisHasUnboundedStar = (branch) => {
+    for (let i = 0; i < branch.length; i++) {
+      const ch = branch[i];
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === '[') {
+        let j = i + 1;
+        if (branch[j] === '!' || branch[j] === '^') j++;
+        if (branch[j] === ']') j++;
+        while (j < branch.length && branch[j] !== ']') {
+          if (branch[j] === '\\') j++;
+          j++;
+        }
+        if (j < branch.length) i = j;
+        continue;
+      }
+      // `*(` opens a nested extglob, whose depth is limited separately above.
+      if (ch === '*' && branch[i + 1] !== '(') {
+        return true;
+      }
+    }
+    return false;
+  };
+  const aegisGroupBody = (branch) => {
+    if (!/^[@?+*]\(/.test(branch) || branch[branch.length - 1] !== ')') return;
+    let depth = 0;
+    for (let i = 1; i < branch.length; i++) {
+      if (branch[i] === '\\') {
+        i++;
+        continue;
+      }
+      if (branch[i] === '(') depth++;
+      if (branch[i] === ')' && --depth === 0) {
+        return i === branch.length - 1 ? branch.slice(2, -1) : undefined;
+      }
+    }
+  };
+  const aegisHasRiskyGroup = (branch) => {
+    const inner = aegisGroupBody(branch);
+    if (inner === undefined) return false;
+    const alternatives = splitTopLevel(inner).map((part) => part.trim());
+    if (
+      alternatives.length > 1 &&
+      (alternatives.some((part) => part === '') ||
+        alternatives.some((part) => /^[*?]+$/.test(part)) ||
+        hasRepeatedCharPrefixOverlap(alternatives))
+    ) {
+      return true;
+    }
+    return alternatives.some(aegisHasRiskyGroup);
+  };
+  if (branches.some((branch) => aegisHasUnboundedStar(branch) || aegisHasRiskyGroup(branch))) {
+    return { risky: true };
+  }
